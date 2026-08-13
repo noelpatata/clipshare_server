@@ -1,0 +1,15 @@
+# Go
+daemon/clipshare
+daemon/clipshare.exe
+*.test
+
+# Gradle / Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.kotlin/
+
+# Misc
+*.log
+.idea/
