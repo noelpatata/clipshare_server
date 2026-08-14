@@ -27,18 +27,23 @@ func NewServer(cfg *config.Config, src StatusSource, bcast Broadcaster, version 
 	return &Server{cfg: cfg, src: src, bcast: bcast, version: version}
 }
 
-// Listen starts the API server and blocks until ctx is cancelled.
-func (s *Server) Listen(ctx context.Context) error {
-	addr := fmt.Sprintf("%s:%d", s.cfg.API.Bind, s.cfg.API.Port)
+// Handler returns the API mux for use with httptest or custom listeners.
+func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(consts.APIStatusPath, s.handleStatus)
 	mux.HandleFunc(consts.APISendPath, s.handleSend)
+	return mux
+}
+
+// Listen starts the API server and blocks until ctx is cancelled.
+func (s *Server) Listen(ctx context.Context) error {
+	addr := fmt.Sprintf("%s:%d", s.cfg.API.Bind, s.cfg.API.Port)
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{Handler: s.Handler()}
 	go func() {
 		<-ctx.Done()
 		srv.Close()
@@ -79,6 +84,11 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	if req.Text == "" {
 		http.Error(w, "text required", http.StatusBadRequest)
 		return
+	}
+	if len(req.Text) > 200 {
+		log.Infof("send: %s...", req.Text[:200])
+	} else {
+		log.Infof("send: %s", req.Text)
 	}
 	s.bcast.BroadcastLocal(clip.Content{Kind: clip.KindText, Text: req.Text}, s.src.DeviceName())
 	writeJSON(w, map[string]bool{"ok": true})

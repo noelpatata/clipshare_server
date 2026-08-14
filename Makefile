@@ -43,8 +43,16 @@ uninstall: ## Remove the symlink from $(INSTALL_DIR)
 clean: ## Remove built binaries
 	rm -rf $(BIN) $(BIN_WIN) $(BIN_LNX) $(DIST)
 
-test: ## Run go vet
+test: ## Run unit tests and go vet
+	go test ./src/tests/unit/...
 	go vet ./...
+
+integration-test: ## Build image and run Docker integration tests
+	docker build -t clipshare:integration .
+	go test ./src/tests/integration/... -count=1 -v
+
+integration-test-clean: ## Remove integration test Docker images
+	docker rmi clipshare:integration || true
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'

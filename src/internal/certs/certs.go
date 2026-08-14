@@ -122,6 +122,8 @@ func Issue(dir, name, kind string, ips []string) error {
 		for _, ip := range ips {
 			if parsed := net.ParseIP(ip); parsed != nil {
 				tmpl.IPAddresses = append(tmpl.IPAddresses, parsed)
+			} else {
+				tmpl.DNSNames = append(tmpl.DNSNames, ip)
 			}
 		}
 	}
