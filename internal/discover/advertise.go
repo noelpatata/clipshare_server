@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/grandcat/zeroconf"
@@ -12,13 +13,13 @@ import (
 const ServiceType = "_clipshare._tcp"
 
 // Advertise announces the daemon over mDNS and periodic UDP broadcasts.
-// domain "" means "local".
-func Advertise(ctx context.Context, name string, port int, mdns bool) error {
+// domain "" means "local". tls reports whether clients must use wss://.
+func Advertise(ctx context.Context, name string, port int, mdns bool, tls bool) error {
 	if !mdns {
 		log.Printf("mdns advertising disabled")
 	} else {
 		server, err := zeroconf.Register(name, ServiceType, "local.", port,
-			[]string{"name=" + name}, nil)
+			[]string{"name=" + name, "tls=" + strconv.FormatBool(tls)}, nil)
 		if err != nil {
 			return err
 		}
@@ -26,21 +27,23 @@ func Advertise(ctx context.Context, name string, port int, mdns bool) error {
 			<-ctx.Done()
 			server.Shutdown()
 		}()
-		log.Printf("mdns: advertising %s.%s on port %d", name, ServiceType, port)
+		log.Printf("mdns: advertising %s.%s on port %d (tls=%v)", name, ServiceType, port, tls)
 	}
 	return nil
 }
 
 // Beacon sends periodic UDP JSON beacons so clients on the same subnet can
 // discover the daemon without mDNS. Sends immediately, then every interval.
-func Beacon(ctx context.Context, name string, port int, interval time.Duration, token string) error {
+// The shared token is deliberately NOT included (plaintext leak on the LAN);
+// authentication is handled over the TLS handshake or token query.
+func Beacon(ctx context.Context, name string, port int, interval time.Duration, tls bool) error {
 	conn, err := net.DialUDP("udp4", nil,
 		&net.UDPAddr{IP: net.IPv4bcast, Port: 40404})
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	payload := beaconJSON(name, port, token)
+	payload := beaconJSON(name, port, tls)
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	send := func() {

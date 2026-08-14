@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"clipshare/internal/clip"
 )
 
 type SendRequest struct {
@@ -20,6 +22,8 @@ type StatusResponse struct {
 	Uptime    string       `json:"uptime"`
 	Peers     []ClientInfo `json:"peers"`
 	TokenAuth bool         `json:"token_auth"`
+	TLS       bool         `json:"tls"`
+	Mode      string       `json:"mode"`
 }
 
 // ListenAPI serves the localhost control API on 127.0.0.1.
@@ -33,6 +37,8 @@ func ListenAPI(ctx context.Context, s *Server, version string) error {
 			Uptime:    s.Uptime().Truncate(time.Second).String(),
 			Peers:     s.Clients(),
 			TokenAuth: s.cfg.Token != "",
+			TLS:       s.cfg.TLS.Enabled,
+			Mode:      s.cfg.Connection.Mode,
 		})
 	})
 	mux.HandleFunc("/send", func(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +55,7 @@ func ListenAPI(ctx context.Context, s *Server, version string) error {
 			http.Error(w, "text required", http.StatusBadRequest)
 			return
 		}
-		s.BroadcastLocal(req.Text, s.cfg.DeviceName)
+		s.BroadcastLocal(clip.Content{Kind: clip.KindText, Text: req.Text}, s.cfg.DeviceName)
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 	ln, err := net.Listen("tcp", addr)

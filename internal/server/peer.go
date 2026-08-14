@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"clipshare/internal/clip"
 )
 
 // PeerClient connects out to a remote clipshare daemon (desktop-to-desktop).
@@ -18,12 +21,12 @@ type PeerClient struct {
 	srv      *Server
 	conn     *websocket.Conn
 	connMu   sync.Mutex
-	onRemote func(text, from string)
+	onRemote func(content clip.Content, from string)
 }
 
 // RunPeers dials each configured peer and reconnects with backoff until ctx
 // is done. onRemote receives clipboard content pushed by the remote daemon.
-func (s *Server) RunPeers(ctx context.Context, version string, onRemote func(text, from string)) {
+func (s *Server) RunPeers(ctx context.Context, version string, onRemote func(content clip.Content, from string)) {
 	for _, host := range s.cfg.Peers {
 		host := strings.TrimSpace(host)
 		if host == "" {
@@ -39,7 +42,20 @@ func (pc *PeerClient) run(ctx context.Context, host, version string) {
 	if !strings.Contains(addr, ":") {
 		addr += ":" + strconv.Itoa(pc.srv.cfg.Server.Port)
 	}
-	u := url.URL{Scheme: "ws", Host: addr, Path: "/ws"}
+	scheme := "ws"
+	var opts *websocket.DialOptions
+	if pc.srv.cfg.TLS.Enabled {
+		scheme = "wss"
+		tlsCfg, err := pc.srv.peerTLSConfig()
+		if err != nil {
+			log.Printf("peer %s: tls config: %v", host, err)
+			return
+		}
+		opts = &websocket.DialOptions{
+			HTTPClient: &http.Client{Transport: &http.Transport{TLSClientConfig: tlsCfg}},
+		}
+	}
+	u := url.URL{Scheme: scheme, Host: addr, Path: "/ws"}
 	if pc.srv.cfg.Token != "" {
 		q := u.Query()
 		q.Set("token", pc.srv.cfg.Token)
@@ -47,7 +63,7 @@ func (pc *PeerClient) run(ctx context.Context, host, version string) {
 	}
 	backoff := time.Second
 	for {
-		conn, _, err := websocket.Dial(ctx, u.String(), nil)
+		conn, _, err := websocket.Dial(ctx, u.String(), opts)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -105,13 +121,15 @@ func (pc *PeerClient) readLoop(ctx context.Context, conn *websocket.Conn, host s
 		if env.Type != MsgClipboard {
 			continue
 		}
-		var clip ClipboardMsg
-		if err := json.Unmarshal(env.Data, &clip); err != nil {
+		var cm ClipboardMsg
+		if err := json.Unmarshal(env.Data, &cm); err != nil {
 			continue
 		}
-		if clip.Text != "" && pc.onRemote != nil {
-			pc.onRemote(clip.Text, clip.From)
+		content, ok := msgToContent(cm)
+		if !ok || pc.onRemote == nil {
+			continue
 		}
+		pc.onRemote(content, cm.From)
 	}
 }
 
@@ -129,15 +147,15 @@ func (pc *PeerClient) keepalive(ctx context.Context, conn *websocket.Conn) {
 	}
 }
 
-// Send pushes clipboard text to the connected peer, if any.
-func (pc *PeerClient) Send(text, from string) {
+// Send pushes clipboard content to the connected peer, if any.
+func (pc *PeerClient) Send(content clip.Content, from string) {
 	pc.connMu.Lock()
 	conn := pc.conn
 	pc.connMu.Unlock()
 	if conn == nil {
 		return
 	}
-	payload, _ := json.Marshal(ClipboardMsg{Text: text, Ts: time.Now().UnixMilli(), From: from})
+	payload, _ := json.Marshal(contentMsg(content, time.Now().UnixMilli(), from))
 	msg, _ := json.Marshal(Envelope{Type: MsgClipboard, Data: payload})
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

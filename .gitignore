@@ -1,15 +1,14 @@
-# Go
-daemon/clipshare
-daemon/clipshare.exe
+# Binaries
+clipshare
+clipshare.exe
+clipshare-linux-amd64
 *.test
 
-# Gradle / Android
-android/.gradle/
-android/build/
-android/app/build/
-android/local.properties
-android/.kotlin/
+# Go
+*.out
 
-# Misc
+# OS / editor
+.DS_Store
 *.log
 .idea/
+.vscode/

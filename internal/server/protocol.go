@@ -11,14 +11,25 @@ const (
 	MsgError     = "error"
 )
 
+// Clipboard content kinds carried in ClipboardMsg.Type.
+const (
+	ContentText  = "text"
+	ContentImage = "image"
+)
+
 type Hello struct {
 	Name     string `json:"name"`
 	Platform string `json:"platform"`
 	Version  string `json:"version"`
 }
 
+// ClipboardMsg carries text or an image (base64-encoded bytes). A missing
+// Type is treated as text by receivers for backward compatibility.
 type ClipboardMsg struct {
-	Text string `json:"text"`
+	Type string `json:"type,omitempty"`
+	Text string `json:"text,omitempty"`
+	Data string `json:"data,omitempty"` // base64-encoded bytes when Type == image
+	Mime string `json:"mime,omitempty"` // e.g. "image/png" when Type == image
 	Ts   int64  `json:"ts"`
 	From string `json:"from"`
 }

@@ -2,16 +2,23 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/coder/websocket"
 
+	"clipshare/internal/certs"
+	"clipshare/internal/clip"
 	"clipshare/internal/config"
 )
 
@@ -19,6 +26,7 @@ import (
 type Client struct {
 	id       string
 	conn     *websocket.Conn
+	ip       string
 	name     string
 	platform string
 	version  string
@@ -31,23 +39,24 @@ type ClientInfo struct {
 	Name     string `json:"name"`
 	Platform string `json:"platform"`
 	Version  string `json:"version"`
+	IP       string `json:"ip"`
 }
 
 // Server accepts WebSocket peers and brokers clipboard messages.
 type Server struct {
-	cfg              *config.Config
-	version          string
-	clients          map[string]*Client
-	peers            map[*PeerClient]struct{}
-	mu               sync.Mutex
-	onRemoteClip     func(text, from string)
-	onClientConnect  func()
-	lastBroadcast    string
-	lastBroadcastT   time.Time
-	started          time.Time
+	cfg             *config.Config
+	version         string
+	clients         map[string]*Client
+	peers           map[*PeerClient]struct{}
+	mu              sync.Mutex
+	onRemoteClip    func(content clip.Content, from string)
+	onClientConnect func()
+	lastBroadcast   uint64
+	lastBroadcastT  time.Time
+	started         time.Time
 }
 
-func New(cfg *config.Config, version string, onRemote func(text, from string)) *Server {
+func New(cfg *config.Config, version string, onRemote func(content clip.Content, from string)) *Server {
 	return &Server{
 		cfg:          cfg,
 		version:      version,
@@ -82,16 +91,70 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	addr := fmt.Sprintf("0.0.0.0:%d", s.cfg.Server.Port)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWS)
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{Handler: mux}
+
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	scheme := "ws"
+	if s.cfg.TLS.Enabled {
+		tlsCfg, err := s.tlsConfig()
+		if err != nil {
+			ln.Close()
+			return err
+		}
+		ln = tls.NewListener(ln, tlsCfg)
+		scheme = "wss"
+	}
 	go func() {
 		<-ctx.Done()
 		srv.Close()
+		ln.Close()
 	}()
-	log.Printf("ws server listening on %s", addr)
-	if err := srv.ListenAndServe(); err != nil && ctx.Err() == nil {
+	log.Printf("%s server listening on %s", scheme, addr)
+	if err := srv.Serve(ln); err != nil && ctx.Err() == nil {
 		return err
 	}
 	return nil
+}
+
+// tlsConfig builds the server-side TLS config: this device's cert plus a
+// private CA pool and mandatory client certificates (mutual TLS).
+func (s *Server) tlsConfig() (*tls.Config, error) {
+	cert, err := certs.LoadKeyPair(s.cfg.TLS.Cert, s.cfg.TLS.Key)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := certs.LoadPool(s.cfg.TLS.CA)
+	if err != nil {
+		return nil, err
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		ClientCAs:    pool,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		MinVersion:   tls.VersionTLS12,
+	}, nil
+}
+
+// peerTLSConfig builds a client-side TLS config for outbound peer dials:
+// this device's cert is presented to the remote daemon and the CA pool
+// verifies the remote daemon's cert.
+func (s *Server) peerTLSConfig() (*tls.Config, error) {
+	cert, err := certs.LoadKeyPair(s.cfg.TLS.Cert, s.cfg.TLS.Key)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := certs.LoadPool(s.cfg.TLS.CA)
+	if err != nil {
+		return nil, err
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		RootCAs:      pool,
+		MinVersion:   tls.VersionTLS12,
+	}, nil
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
@@ -106,11 +169,11 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ws accept: %v", err)
 		return
 	}
-	client := &Client{id: newID(), conn: c}
+	client := &Client{id: newID(), conn: c, ip: clientIP(r.RemoteAddr)}
 	s.mu.Lock()
 	s.clients[client.id] = client
 	s.mu.Unlock()
-	log.Printf("client connected: %s", client.id)
+	log.Printf("client connected: %s (%s)", client.id, client.ip)
 	s.handleClient(r.Context(), client)
 }
 
@@ -139,6 +202,15 @@ func (s *Server) handleClient(ctx context.Context, c *Client) {
 		s.sendError(c, "bad_hello", "invalid hello payload")
 		return
 	}
+
+	// Whitelist mode: only devices matching the whitelist by IP or name are
+	// allowed to talk to us (in addition to token/TLS checks).
+	if s.cfg.Connection.Mode == config.ModeWhitelist && !s.cfg.InWhitelist(c.ip, hello.Name) {
+		s.sendError(c, "not_whitelisted", "device not in whitelist")
+		log.Printf("rejected non-whitelisted hello from %q (%s)", hello.Name, c.ip)
+		return
+	}
+
 	c.name = hello.Name
 	c.platform = hello.Platform
 	c.version = hello.Version
@@ -172,28 +244,30 @@ func (s *Server) handleClient(ctx context.Context, c *Client) {
 			s.pong(c)
 		case MsgPong:
 		case MsgClipboard:
-			var clip ClipboardMsg
-			if err := json.Unmarshal(env.Data, &clip); err != nil {
+			var cm ClipboardMsg
+			if err := json.Unmarshal(env.Data, &cm); err != nil {
 				s.sendError(c, "bad_clipboard", "invalid clipboard payload")
 				continue
 			}
-			s.handleClipboard(c, clip)
+			s.handleClipboard(c, cm)
 		default:
 			s.sendError(c, "unknown_type", "unrecognized message type")
 		}
 	}
 }
 
-func (s *Server) handleClipboard(from *Client, clip ClipboardMsg) {
-	if clip.Text == "" {
+func (s *Server) handleClipboard(from *Client, msg ClipboardMsg) {
+	content, ok := msgToContent(msg)
+	if !ok {
 		return
 	}
 	// Loop protection: ignore content identical to what we last wrote locally
 	// (echo of our own broadcast).
+	key := contentKey(content)
 	s.mu.Lock()
-	isEcho := clip.Text == s.lastBroadcast && time.Since(s.lastBroadcastT) < 30*time.Second
+	isEcho := key == s.lastBroadcast && time.Since(s.lastBroadcastT) < 30*time.Second
 	if !isEcho {
-		s.lastBroadcast = clip.Text
+		s.lastBroadcast = key
 		s.lastBroadcastT = time.Now()
 	}
 	s.mu.Unlock()
@@ -201,15 +275,20 @@ func (s *Server) handleClipboard(from *Client, clip ClipboardMsg) {
 		return
 	}
 	if s.onRemoteClip != nil {
-		s.onRemoteClip(clip.Text, clip.From)
+		s.onRemoteClip(content, msg.From)
 	}
-	s.Broadcast(clip.Text, clip.From, from.id)
+	s.Broadcast(content, msg.From, from.id)
 }
 
 // Broadcast sends clipboard content to every connected client except the
 // origin (skipID "" means broadcast to all).
-func (s *Server) Broadcast(text, from, skipID string) {
-	payload, _ := json.Marshal(ClipboardMsg{Text: text, Ts: time.Now().UnixMilli(), From: from})
+func (s *Server) Broadcast(content clip.Content, from, skipID string) {
+	if content.Kind == clip.KindImage && int64(len(content.Image)) > s.cfg.MaxImageBytes {
+		log.Printf("dropping image broadcast: %d bytes exceeds max_image_bytes=%d",
+			len(content.Image), s.cfg.MaxImageBytes)
+		return
+	}
+	payload, _ := json.Marshal(contentMsg(content, time.Now().UnixMilli(), from))
 	msg, _ := json.Marshal(Envelope{Type: MsgClipboard, Data: payload})
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -222,13 +301,13 @@ func (s *Server) Broadcast(text, from, skipID string) {
 		}
 	}
 	for pc := range s.peers {
-		pc.Send(text, from)
+		pc.Send(content, from)
 	}
 }
 
 // BroadcastLocal fans out a local clipboard change to all connected clients.
-func (s *Server) BroadcastLocal(text, from string) {
-	s.Broadcast(text, from, "")
+func (s *Server) BroadcastLocal(content clip.Content, from string) {
+	s.Broadcast(content, from, "")
 }
 
 func (s *Client) write(msg []byte) error {
@@ -259,7 +338,7 @@ func (s *Server) Clients() []ClientInfo {
 	out := make([]ClientInfo, 0, len(s.clients))
 	for _, c := range s.clients {
 		out = append(out, ClientInfo{
-			ID: c.id, Name: c.name, Platform: c.platform, Version: c.version,
+			ID: c.id, Name: c.name, Platform: c.platform, Version: c.version, IP: c.ip,
 		})
 	}
 	return out
@@ -276,4 +355,67 @@ func newID() string {
 	defer idMu.Unlock()
 	idSeq++
 	return strconv.FormatUint(idSeq, 36)
+}
+
+// contentMsg converts clip.Content into a wire ClipboardMsg.
+func contentMsg(c clip.Content, ts int64, from string) ClipboardMsg {
+	if c.Kind == clip.KindImage {
+		mime := c.Mime
+		if mime == "" {
+			mime = "image/png"
+		}
+		return ClipboardMsg{
+			Type: ContentImage,
+			Data: base64.StdEncoding.EncodeToString(c.Image),
+			Mime: mime,
+			Ts:   ts,
+			From: from,
+		}
+	}
+	return ClipboardMsg{Type: ContentText, Text: c.Text, Ts: ts, From: from}
+}
+
+// msgToContent converts a wire ClipboardMsg into clip.Content, or reports
+// false when the payload is empty.
+func msgToContent(m ClipboardMsg) (clip.Content, bool) {
+	switch m.Type {
+	case ContentImage:
+		data, err := base64.StdEncoding.DecodeString(m.Data)
+		if err != nil || len(data) == 0 {
+			return clip.Content{}, false
+		}
+		mime := m.Mime
+		if mime == "" {
+			mime = "image/png"
+		}
+		return clip.Content{Kind: clip.KindImage, Image: data, Mime: mime}, true
+	default: // "" or "text"
+		if m.Text == "" {
+			return clip.Content{}, false
+		}
+		return clip.Content{Kind: clip.KindText, Text: m.Text}, true
+	}
+}
+
+// contentKey produces a hash identifying content for loop protection.
+func contentKey(c clip.Content) uint64 {
+	h := fnv.New64a()
+	if c.Kind == clip.KindImage {
+		h.Write([]byte{0})
+		h.Write(c.Image)
+		h.Write([]byte(c.Mime))
+	} else {
+		h.Write([]byte{1})
+		h.Write([]byte(c.Text))
+	}
+	return h.Sum64()
+}
+
+// clientIP extracts the IP from a net/http RemoteAddr string.
+func clientIP(remoteAddr string) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	return strings.Trim(host, "[]")
 }

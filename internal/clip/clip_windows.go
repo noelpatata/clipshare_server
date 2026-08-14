@@ -16,12 +16,19 @@ func New() (Interface, error) {
 	return &winClip{}, nil
 }
 
-func (c *winClip) Read() (string, error) {
-	return string(clipboard.Read(clipboard.FmtText)), nil
+func (c *winClip) Read() (Content, error) {
+	if img := clipboard.Read(clipboard.FmtImage); len(img) > 0 {
+		return Content{Kind: KindImage, Image: img, Mime: "image/png"}, nil
+	}
+	return Content{Kind: KindText, Text: string(clipboard.Read(clipboard.FmtText))}, nil
 }
 
-func (c *winClip) Write(text string) error {
-	<-clipboard.Write(clipboard.FmtText, []byte(text))
+func (c *winClip) Write(content Content) error {
+	if content.Kind == KindImage {
+		<-clipboard.Write(clipboard.FmtImage, content.Image)
+		return nil
+	}
+	<-clipboard.Write(clipboard.FmtText, []byte(content.Text))
 	return nil
 }
 
