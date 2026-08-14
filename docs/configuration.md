@@ -20,14 +20,17 @@ may be unset).
 | key | type | default | description |
 |-----|------|---------|-------------|
 | `device_name` | string | hostname | The name this daemon announces. Shown in `hello`, `status`, and mDNS/beacon discovery. The Android app's "device name" is the analogous setting. |
-| `mdns` | bool | `true` | Advertise via mDNS as `_clipshare._tcp`. Set `false` to stop mDNS (the UDP beacon still runs). |
+| `mdns` | bool | `true` | **Deprecated.** Use `[discovery] mdns` instead. Kept for backward compatibility. |
 | `broadcast` | int (seconds) | `5` | Interval of the UDP discovery beacon. `<= 0` falls back to 5s. |
 | `watch` | int (milliseconds) | `300` | Clipboard poll interval. Values `< 50` are clamped back to `300`. |
 | `token` | string | `""` | Optional shared secret. When set, clients must pass `?token=` on the WebSocket URL (the Android app and desktop peers do this automatically). Empty = no token check. **Security note:** without TLS the token travels in plaintext (URL and never again in the beacon). Prefer mTLS (`[tls]`). |
-| `peers` | []string | `[]` | Desktop-to-desktop relay targets: `host[:port]`. Each is dialed out and retried with backoff (1s → 30s). Used to relay clipboard data between two desktops. |
+| `peers` | []string | `[]` | Desktop-to-desktop relay targets: `host[:port]`. Each is dialed out and retried with backoff. Used to relay clipboard data between two desktops. |
 | `max_image_bytes` | int | `10485760` | Images larger than this are dropped at broadcast time instead of being sent. 0 or negative falls back to 10 MiB. |
-| `server.port` | int | `40403` | WebSocket listen port (all interfaces). |
-| `api.port` | int | `40405` | Localhost control API port (bound to `127.0.0.1` only): `GET /status`, `POST /send`. |
+| `max_message_bytes` | int | `10485760` | Maximum WebSocket message size allowed from clients. 0 or negative falls back to 10 MiB. |
+| `server.port` | int | `40403` | WebSocket listen port. |
+| `server.bind` | string | `"0.0.0.0"` | WebSocket listen address. Use `127.0.0.1` to accept only local connections. |
+| `api.port` | int | `40405` | Localhost control API port. |
+| `api.bind` | string | `"127.0.0.1"` | Localhost control API bind address. |
 | `connection.mode` | string | `"discover"` | How this daemon finds and trusts peers. `"discover"` or `"whitelist"` (below). |
 | `connection.whitelist` | table array | `[]` | Allowed devices in whitelist mode: `{ name = "...", ip = "..." }`. |
 | `tls.enabled` | bool | `false` | Enable mutual TLS on the WebSocket server (and `wss://` outbound peer dials). |
@@ -35,9 +38,90 @@ may be unset).
 | `tls.cert` | string | `<config-dir>/certs/server.pem` | This device's certificate (CN = your device name, SAN IPs = its LAN IPs). |
 | `tls.key` | string | `<config-dir>/certs/server.key` | This device's private key (permissions `0600`). |
 
+### Discovery
+
+The `[discovery]` section controls how the daemon announces itself on the LAN.
+It only has effect when `connection.mode = "discover"`.
+
+| key | type | default | description |
+|-----|------|---------|-------------|
+| `discovery.mdns` | bool | `true` | Advertise via mDNS as `_clipshare._tcp`. |
+| `discovery.beacon` | bool | `true` | Send UDP broadcast beacons. |
+| `discovery.beacon_port` | int | `40404` | UDP beacon destination port. Must match the Android client's "Beacon port" setting if changed. |
+| `discovery.beacon_addr` | string | `"255.255.255.255"` | UDP beacon destination address. |
+
+### Timing
+
+The `[timing]` section exposes timeouts and intervals. Defaults match the
+previous hardcoded values; change only if you know you need to.
+
+| key | type | default | description |
+|-----|------|---------|-------------|
+| `timing.hello_timeout` | duration | `"5s"` | Max time to wait for a client's hello message. |
+| `timing.write_timeout` | duration | `"3s"` | Max time to wait when writing to a WebSocket. |
+| `timing.peer_keepalive` | duration | `"30s"` | Interval between peer ping messages. |
+| `timing.peer_backoff_initial` | duration | `"1s"` | Initial reconnect delay for outbound peers. |
+| `timing.peer_backoff_max` | duration | `"30s"` | Max reconnect delay for outbound peers. |
+| `timing.echo_window` | duration | `"30s"` | How long loop-protection remembers the last local broadcast. |
+| `timing.one_shot_timeout` | duration | `"120s"` | How long `clipshare share` waits for a client. |
+| `timing.one_shot_grace` | duration | `"5s"` | How long a one-shot server stays up after delivering. |
+| `timing.watch_remote_timeout` | duration | `"120s"` | Default timeout for `clipshare watch --remote`. |
+
+### Clipboard (Linux only)
+
+The `[clipboard]` section selects the clipboard backend on Linux. Windows
+ignores this section because it uses the system clipboard API directly.
+
+| key | type | default | description |
+|-----|------|---------|-------------|
+| `clipboard.backend` | string | `"auto"` | `"auto"` detects Wayland or X11; `"wayland"`, `"xclip"`, or `"xsel"` forces a specific backend. |
+
+When `backend = "auto"` the daemon tries, in order:
+
+1. `wl-copy` / `wl-paste` if `WAYLAND_DISPLAY` is set.
+2. `xclip`
+3. `xsel`
+
+### Linux clipboard setup
+
+Most modern distributions already ship one of the supported tools. If none is
+installed, pick one:
+
+**Wayland:**
+```sh
+# Debian/Ubuntu
+sudo apt install wl-clipboard
+
+# Fedora
+sudo dnf install wl-clipboard
+
+# Arch
+sudo pacman -S wl-clipboard
+```
+
+**X11:**
+```sh
+# Debian/Ubuntu
+sudo apt install xclip
+
+# Fedora
+sudo dnf install xclip
+
+# Arch
+sudo pacman -S xclip
+```
+
+If you want to force a specific backend (e.g. you have both Wayland and X11
+tools installed but prefer `xclip`):
+
+```toml
+[clipboard]
+backend = "xclip"
+```
+
 ### Fixed values
 
-- WebSocket port `40403`, UDP beacon port `40404`, localhost API `40405`.
+- Service type `_clipshare._tcp` and WebSocket path `/ws` are not configurable.
 - The beacon advertises `name`, `port`, and `tls` only — the shared token is
   deliberately **not** broadcast (plaintext leak on the LAN).
 
@@ -120,6 +204,7 @@ watch = 300
 token = ""
 peers = []
 max_image_bytes = 10485760
+max_message_bytes = 10485760
 
 [connection]
 mode = "discover"
@@ -127,9 +212,28 @@ whitelist = []
 
 [server]
 port = 40403
+bind = "0.0.0.0"
 
 [api]
 port = 40405
+bind = "127.0.0.1"
+
+[discovery]
+mdns = true
+beacon = true
+beacon_port = 40404
+beacon_addr = "255.255.255.255"
+
+[timing]
+hello_timeout = "5s"
+write_timeout = "3s"
+peer_keepalive = "30s"
+peer_backoff_initial = "1s"
+peer_backoff_max = "30s"
+echo_window = "30s"
+one_shot_timeout = "120s"
+one_shot_grace = "5s"
+watch_remote_timeout = "120s"
 
 [tls]
 enabled = false

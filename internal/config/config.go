@@ -10,26 +10,31 @@ import (
 )
 
 type Config struct {
-	DeviceName    string     `toml:"device_name"`
-	Server        Server     `toml:"server"`
-	API           API        `toml:"api"`
-	Mdns          bool       `toml:"mdns"`
-	Broadcast     int        `toml:"broadcast"`
-	Watch         int        `toml:"watch"`
-	Token         string     `toml:"token"`
-	Peers         []string   `toml:"peers"`
-	Connection    Connection `toml:"connection"`
-	TLS            TLS        `toml:"tls"`
-	MaxImageBytes  int64      `toml:"max_image_bytes"`
-	MaxMessageBytes int64     `toml:"max_message_bytes"`
+	DeviceName      string     `toml:"device_name"`
+	Server          Server     `toml:"server"`
+	API             API        `toml:"api"`
+	Mdns            bool       `toml:"mdns"`      // deprecated: prefer Discovery.MDNS
+	Broadcast       int        `toml:"broadcast"` // beacon interval in seconds
+	Watch           int        `toml:"watch"`
+	Token           string     `toml:"token"`
+	Peers           []string   `toml:"peers"`
+	Connection      Connection `toml:"connection"`
+	TLS             TLS        `toml:"tls"`
+	MaxImageBytes   int64      `toml:"max_image_bytes"`
+	MaxMessageBytes int64      `toml:"max_message_bytes"`
+	Discovery       Discovery  `toml:"discovery"`
+	Timing          Timing     `toml:"timing"`
+	Clipboard       Clipboard  `toml:"clipboard"`
 }
 
 type Server struct {
-	Port int `toml:"port"`
+	Port int    `toml:"port"`
+	Bind string `toml:"bind"`
 }
 
 type API struct {
-	Port int `toml:"port"`
+	Port int    `toml:"port"`
+	Bind string `toml:"bind"`
 }
 
 // Connection governs how devices find and trust each other. The same options
@@ -42,6 +47,33 @@ type Connection struct {
 type WhitelistEntry struct {
 	Name string `toml:"name"`
 	IP   string `toml:"ip"`
+}
+
+// Discovery controls service advertisement on the LAN.
+type Discovery struct {
+	MDNS       bool   `toml:"mdns"`
+	Beacon     bool   `toml:"beacon"`
+	BeaconPort int    `toml:"beacon_port"`
+	BeaconAddr string `toml:"beacon_addr"`
+}
+
+// Clipboard selects the clipboard backend on Linux. Windows ignores this
+// section because it uses the system clipboard API directly.
+type Clipboard struct {
+	Backend string `toml:"backend"` // "auto", "wayland", "xclip", "xsel"
+}
+
+// Timing holds user-tunable timeouts and intervals.
+type Timing struct {
+	HelloTimeout       time.Duration `toml:"hello_timeout"`
+	WriteTimeout       time.Duration `toml:"write_timeout"`
+	PeerKeepalive      time.Duration `toml:"peer_keepalive"`
+	PeerBackoffInitial time.Duration `toml:"peer_backoff_initial"`
+	PeerBackoffMax     time.Duration `toml:"peer_backoff_max"`
+	EchoWindow         time.Duration `toml:"echo_window"`
+	OneShotTimeout     time.Duration `toml:"one_shot_timeout"`
+	OneShotGrace       time.Duration `toml:"one_shot_grace"`
+	WatchRemoteTimeout time.Duration `toml:"watch_remote_timeout"`
 }
 
 // TLS enables mutual TLS. CA is the shared trust root; Cert/Key are this
@@ -63,8 +95,8 @@ func Default() *Config {
 	certsDir := filepath.Join(filepath.Dir(Path()), "certs")
 	return &Config{
 		DeviceName: host,
-		Server:     Server{Port: 40403},
-		API:        API{Port: 40405},
+		Server:     Server{Port: 40403, Bind: "0.0.0.0"},
+		API:        API{Port: 40405, Bind: "127.0.0.1"},
 		Mdns:       true,
 		Broadcast:  5,
 		Watch:      300,
@@ -79,6 +111,24 @@ func Default() *Config {
 		},
 		MaxImageBytes:   10 * 1024 * 1024,
 		MaxMessageBytes: 10 * 1024 * 1024,
+		Discovery: Discovery{
+			MDNS:       true,
+			Beacon:     true,
+			BeaconPort: 40404,
+			BeaconAddr: "255.255.255.255",
+		},
+		Clipboard: Clipboard{Backend: "auto"},
+		Timing: Timing{
+			HelloTimeout:       5 * time.Second,
+			WriteTimeout:       3 * time.Second,
+			PeerKeepalive:      30 * time.Second,
+			PeerBackoffInitial: 1 * time.Second,
+			PeerBackoffMax:     30 * time.Second,
+			EchoWindow:         30 * time.Second,
+			OneShotTimeout:     120 * time.Second,
+			OneShotGrace:       5 * time.Second,
+			WatchRemoteTimeout: 120 * time.Second,
+		},
 	}
 }
 
@@ -91,10 +141,36 @@ func Path() string {
 
 func Load() (*Config, error) {
 	cfg := Default()
-	_, err := toml.DecodeFile(Path(), cfg)
+	meta, err := toml.DecodeFile(Path(), cfg)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
+
+	// Backward compatibility: top-level mdns/broadcast are deprecated in favor
+	// of [discovery] and [timing]. Apply them only when the new keys are absent.
+	if !meta.IsDefined("discovery", "mdns") {
+		cfg.Discovery.MDNS = cfg.Mdns
+	}
+	if !meta.IsDefined("discovery", "beacon") {
+		cfg.Discovery.Beacon = true
+	}
+	if !meta.IsDefined("discovery", "beacon_port") {
+		cfg.Discovery.BeaconPort = 40404
+	}
+	if !meta.IsDefined("discovery", "beacon_addr") {
+		cfg.Discovery.BeaconAddr = "255.255.255.255"
+	}
+	if cfg.Discovery.BeaconPort <= 0 {
+		cfg.Discovery.BeaconPort = 40404
+	}
+	if cfg.Discovery.BeaconAddr == "" {
+		cfg.Discovery.BeaconAddr = "255.255.255.255"
+	}
+	cfg.Clipboard.Backend = normalizeClipboardBackend(cfg.Clipboard.Backend)
+
+	// Keep the deprecated top-level field in sync so re-saving is consistent.
+	cfg.Mdns = cfg.Discovery.MDNS
+
 	if cfg.Watch < 50 {
 		cfg.Watch = 300
 	}
@@ -107,7 +183,45 @@ func Load() (*Config, error) {
 	if cfg.MaxMessageBytes <= 0 {
 		cfg.MaxMessageBytes = 10 * 1024 * 1024
 	}
+	if cfg.Server.Bind == "" {
+		cfg.Server.Bind = "0.0.0.0"
+	}
+	if cfg.API.Bind == "" {
+		cfg.API.Bind = "127.0.0.1"
+	}
+	cfg.Timing = cfg.Timing.withDefaults()
 	return cfg, nil
+}
+
+func (t Timing) withDefaults() Timing {
+	if t.HelloTimeout <= 0 {
+		t.HelloTimeout = 5 * time.Second
+	}
+	if t.WriteTimeout <= 0 {
+		t.WriteTimeout = 3 * time.Second
+	}
+	if t.PeerKeepalive <= 0 {
+		t.PeerKeepalive = 30 * time.Second
+	}
+	if t.PeerBackoffInitial <= 0 {
+		t.PeerBackoffInitial = 1 * time.Second
+	}
+	if t.PeerBackoffMax <= 0 {
+		t.PeerBackoffMax = 30 * time.Second
+	}
+	if t.EchoWindow <= 0 {
+		t.EchoWindow = 30 * time.Second
+	}
+	if t.OneShotTimeout <= 0 {
+		t.OneShotTimeout = 120 * time.Second
+	}
+	if t.OneShotGrace <= 0 {
+		t.OneShotGrace = 5 * time.Second
+	}
+	if t.WatchRemoteTimeout <= 0 {
+		t.WatchRemoteTimeout = 120 * time.Second
+	}
+	return t
 }
 
 func (c *Config) Save() error {
@@ -148,9 +262,31 @@ whitelist = %s
 
 [server]
 port = %d
+bind = %q
 
 [api]
 port = %d
+bind = %q
+
+[discovery]
+mdns = %v
+beacon = %v
+beacon_port = %d
+beacon_addr = %q
+
+[clipboard]
+backend = %q
+
+[timing]
+hello_timeout = %q
+write_timeout = %q
+peer_keepalive = %q
+peer_backoff_initial = %q
+peer_backoff_max = %q
+echo_window = %q
+one_shot_timeout = %q
+one_shot_grace = %q
+watch_remote_timeout = %q
 
 [tls]
 enabled = %v
@@ -159,7 +295,13 @@ cert = %q
 key = %q
 `, c.DeviceName, c.Mdns, c.Broadcast, c.Watch, c.Token, tomlSlice(c.Peers),
 		c.MaxImageBytes, c.MaxMessageBytes, c.Connection.Mode, tomlWhitelist(c.Connection.Whitelist),
-		c.Server.Port, c.API.Port,
+		c.Server.Port, c.Server.Bind,
+		c.API.Port, c.API.Bind,
+		c.Discovery.MDNS, c.Discovery.Beacon, c.Discovery.BeaconPort, c.Discovery.BeaconAddr,
+		c.Clipboard.Backend,
+		c.Timing.HelloTimeout, c.Timing.WriteTimeout, c.Timing.PeerKeepalive,
+		c.Timing.PeerBackoffInitial, c.Timing.PeerBackoffMax, c.Timing.EchoWindow,
+		c.Timing.OneShotTimeout, c.Timing.OneShotGrace, c.Timing.WatchRemoteTimeout,
 		c.TLS.Enabled, c.TLS.CA, c.TLS.Cert, c.TLS.Key)
 
 	f, err := os.Create(Path())
@@ -201,6 +343,15 @@ func tomlWhitelist(w []WhitelistEntry) string {
 	return out + "]"
 }
 
+func normalizeClipboardBackend(v string) string {
+	switch v {
+	case "wayland", "xclip", "xsel":
+		return v
+	default:
+		return "auto"
+	}
+}
+
 func (c *Config) BroadcastInterval() time.Duration {
 	if c.Broadcast <= 0 {
 		return 5 * time.Second
@@ -209,8 +360,8 @@ func (c *Config) BroadcastInterval() time.Duration {
 }
 
 func (c *Config) WatchInterval() time.Duration {
-	if c.Watch <= 0 {
-		return 300 * time.Millisecond
+	if c.Watch < 50 {
+		c.Watch = 300
 	}
 	return time.Duration(c.Watch) * time.Millisecond
 }

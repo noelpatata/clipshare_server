@@ -1,4 +1,4 @@
-package cli
+package commands
 
 import (
 	"fmt"
@@ -7,14 +7,13 @@ import (
 
 	"clipshare/internal/certs"
 	"clipshare/internal/config"
+	"clipshare/internal/consts"
 )
 
-// certDir is where the private CA and issued certificates live.
-func certDir() (string, error) {
-	return filepath.Join(filepath.Dir(config.Path()), "certs"), nil
-}
+// certCmd manages the mTLS private CA and certificates.
+type certCmd struct{}
 
-func runCert(args []string) error {
+func (certCmd) Run(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf(`usage: clipshare cert <init|issue|export|list>
 
@@ -53,7 +52,7 @@ func runCert(args []string) error {
 		if err := certs.ExportP12(dir, name, kind, out); err != nil {
 			return err
 		}
-		fmt.Printf("wrote %s (import on the phone; PKCS#12 password: %q)\n", out, certs.P12Password)
+		fmt.Printf("wrote %s (import on the phone; PKCS#12 password: %q)\n", out, consts.P12Password)
 		return nil
 	case "list":
 		info, err := certs.List(dir)
@@ -65,6 +64,11 @@ func runCert(args []string) error {
 	default:
 		return fmt.Errorf("unknown cert subcommand %q", args[0])
 	}
+}
+
+// certDir is where the private CA and issued certificates live.
+func certDir() (string, error) {
+	return filepath.Join(filepath.Dir(config.Path()), "certs"), nil
 }
 
 func parseCertArgs(args []string) (name, kind string, ips []string, err error) {

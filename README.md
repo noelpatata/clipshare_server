@@ -15,7 +15,7 @@ IP configuration is needed.
 - **Loop protection** — never rebroadcasts content it wrote itself
 - **Zero-config discovery** — mDNS (`_clipshare._tcp`) + UDP beacons on `40404`
   so the phone connects automatically
-- **One-shot `share`** — push text (or your current selection) without keeping a
+- **One-shot `share`** — push text (or your current clipboard) without keeping a
   daemon running; it starts transiently, delivers, and exits
 - Cross-platform: **Linux** (Wayland + X11) and **Windows**
 - Optional shared **token** authentication
@@ -87,7 +87,7 @@ clipshare --help
 
 ```
 clipshare daemon [--no-watch]   run server + clipboard watcher (foreground)
-clipshare share [<text>]        push text (or your selection) to peers;
+  clipshare share [<text>]        push text (or your clipboard) to peers;
                                 starts a transient daemon if none is running
 clipshare send <text>           push text via a running daemon to connected peers
 clipshare copy <text>           set the local clipboard only
@@ -106,7 +106,7 @@ clipshare cert                  manage mTLS certificates (init/issue/export/list
 
 ```sh
 clipshare share "hello from the laptop"   # explicit text
-clipshare share                           # sends your current selection
+clipshare share                           # sends your current clipboard
 ```
 
 `share` checks for a running daemon; if none exists it starts a transient
@@ -122,7 +122,7 @@ clipshare status            # verify the daemon is up and who is connected
 ```
 
 > `share` and `send` do the same push; `share` additionally falls back to a
-> transient daemon and reads your selection when no text is given.
+> transient daemon and reads your clipboard when no text is given.
 
 ### Receiving on the laptop
 
@@ -213,11 +213,14 @@ JSON over WebSocket (port `40403`):
 
 ```
 cmd/clipshare/        entry point (thin main)
-internal/cli/         command implementations (daemon, share, send, ...)
+internal/cli/         command dispatch + App lifecycle (daemon, share, send, ...)
 internal/clip/        clipboard backends (Linux/Wayland, Windows) + watcher
 internal/config/      TOML config loading/saving
 internal/certs/       private CA + certificate issuance (clipshare cert)
+internal/consts/      non-configurable application constants
 internal/discover/    mDNS advertising + UDP beacon broadcasting
-internal/server/      WebSocket server, protocol, localhost API, peers
+internal/protocol/    JSON-over-WebSocket wire types + codec
+internal/websocket/   WebSocket server + outbound peers
+internal/api/         localhost HTTP control API + client
 internal/version/     release version
 ```

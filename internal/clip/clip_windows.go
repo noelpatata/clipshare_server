@@ -4,12 +4,21 @@ import (
 	"fmt"
 
 	"golang.design/x/clipboard"
+
+	"clipshare/internal/config"
+	"clipshare/internal/consts"
 )
 
 type winClip struct{}
 
 // New returns a clipboard backend for the current platform.
 func New() (Interface, error) {
+	return NewForConfig(nil)
+}
+
+// NewForConfig returns a clipboard backend for Windows. The config is ignored
+// because Windows uses the system clipboard API directly.
+func NewForConfig(cfg *config.Config) (Interface, error) {
 	if err := clipboard.Init(); err != nil {
 		return nil, fmt.Errorf("clipboard init: %w", err)
 	}
@@ -18,7 +27,7 @@ func New() (Interface, error) {
 
 func (c *winClip) Read() (Content, error) {
 	if img := clipboard.Read(clipboard.FmtImage); len(img) > 0 {
-		return Content{Kind: KindImage, Image: img, Mime: "image/png"}, nil
+		return Content{Kind: KindImage, Image: img, Mime: consts.DefaultImageMime}, nil
 	}
 	return Content{Kind: KindText, Text: string(clipboard.Read(clipboard.FmtText))}, nil
 }
