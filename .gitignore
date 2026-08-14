@@ -4,6 +4,9 @@ clipshare.exe
 clipshare-linux-amd64
 *.test
 
+# Release artifacts
+dist/
+
 # Go
 *.out
 
