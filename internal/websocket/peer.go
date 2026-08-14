@@ -1,4 +1,4 @@
-package server
+package websocket
 
 import (
 	"context"
@@ -14,6 +14,8 @@ import (
 	"github.com/coder/websocket"
 
 	"clipshare/internal/clip"
+	"clipshare/internal/consts"
+	"clipshare/internal/protocol"
 )
 
 // PeerClient connects out to a remote clipshare daemon (desktop-to-desktop).
@@ -42,10 +44,10 @@ func (pc *PeerClient) run(ctx context.Context, host, version string) {
 	if !strings.Contains(addr, ":") {
 		addr += ":" + strconv.Itoa(pc.srv.cfg.Server.Port)
 	}
-	scheme := "ws"
+	scheme := consts.SchemeWS
 	var opts *websocket.DialOptions
 	if pc.srv.cfg.TLS.Enabled {
-		scheme = "wss"
+		scheme = consts.SchemeWSS
 		tlsCfg, err := pc.srv.peerTLSConfig()
 		if err != nil {
 			log.Printf("peer %s: tls config: %v", host, err)
@@ -55,13 +57,13 @@ func (pc *PeerClient) run(ctx context.Context, host, version string) {
 			HTTPClient: &http.Client{Transport: &http.Transport{TLSClientConfig: tlsCfg}},
 		}
 	}
-	u := url.URL{Scheme: scheme, Host: addr, Path: "/ws"}
+	u := url.URL{Scheme: scheme, Host: addr, Path: consts.WSPath}
 	if pc.srv.cfg.Token != "" {
 		q := u.Query()
 		q.Set("token", pc.srv.cfg.Token)
 		u.RawQuery = q.Encode()
 	}
-	backoff := time.Second
+	backoff := pc.srv.cfg.Timing.PeerBackoffInitial
 	for {
 		conn, _, err := websocket.Dial(ctx, u.String(), opts)
 		if err != nil {
@@ -74,20 +76,21 @@ func (pc *PeerClient) run(ctx context.Context, host, version string) {
 				return
 			case <-time.After(backoff):
 			}
-			if backoff < 30*time.Second {
+			if backoff < pc.srv.cfg.Timing.PeerBackoffMax {
 				backoff *= 2
 			}
 			continue
 		}
-		backoff = time.Second
+		conn.SetReadLimit(pc.srv.cfg.MaxMessageBytes)
+		backoff = pc.srv.cfg.Timing.PeerBackoffInitial
 		pc.connMu.Lock()
 		pc.conn = conn
 		pc.connMu.Unlock()
 		pc.srv.registerPeer(pc)
 		log.Printf("peer %s: connected", host)
 
-		hello, _ := json.Marshal(Envelope{Type: MsgHello, Data: mustJSON(Hello{
-			Name: pc.srv.cfg.DeviceName, Platform: "desktop", Version: version,
+		hello, _ := json.Marshal(protocol.Envelope{Type: protocol.MsgHello, Data: protocol.MustJSON(protocol.Hello{
+			Name: pc.srv.cfg.DeviceName, Platform: protocol.PlatformDesktop, Version: version,
 		})})
 		if err := conn.Write(ctx, websocket.MessageText, hello); err != nil {
 			pc.close()
@@ -114,18 +117,18 @@ func (pc *PeerClient) readLoop(ctx context.Context, conn *websocket.Conn, host s
 			log.Printf("peer %s: read: %v", host, err)
 			return
 		}
-		var env Envelope
+		var env protocol.Envelope
 		if err := json.Unmarshal(msg, &env); err != nil {
 			continue
 		}
-		if env.Type != MsgClipboard {
+		if env.Type != protocol.MsgClipboard {
 			continue
 		}
-		var cm ClipboardMsg
+		var cm protocol.ClipboardMsg
 		if err := json.Unmarshal(env.Data, &cm); err != nil {
 			continue
 		}
-		content, ok := msgToContent(cm)
+		content, ok := protocol.MsgToContent(cm)
 		if !ok || pc.onRemote == nil {
 			continue
 		}
@@ -134,9 +137,9 @@ func (pc *PeerClient) readLoop(ctx context.Context, conn *websocket.Conn, host s
 }
 
 func (pc *PeerClient) keepalive(ctx context.Context, conn *websocket.Conn) {
-	t := time.NewTicker(30 * time.Second)
+	t := time.NewTicker(pc.srv.cfg.Timing.PeerKeepalive)
 	defer t.Stop()
-	ping, _ := json.Marshal(Envelope{Type: MsgPing})
+	ping, _ := json.Marshal(protocol.Envelope{Type: protocol.MsgPing})
 	for {
 		select {
 		case <-ctx.Done():
@@ -155,9 +158,9 @@ func (pc *PeerClient) Send(content clip.Content, from string) {
 	if conn == nil {
 		return
 	}
-	payload, _ := json.Marshal(contentMsg(content, time.Now().UnixMilli(), from))
-	msg, _ := json.Marshal(Envelope{Type: MsgClipboard, Data: payload})
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	payload, _ := json.Marshal(protocol.ContentMsg(content, protocol.NowMillis(), from))
+	msg, _ := json.Marshal(protocol.Envelope{Type: protocol.MsgClipboard, Data: payload})
+	ctx, cancel := context.WithTimeout(context.Background(), pc.srv.cfg.Timing.WriteTimeout)
 	defer cancel()
 	conn.Write(ctx, websocket.MessageText, msg)
 }
@@ -171,7 +174,3 @@ func (pc *PeerClient) close() {
 	}
 }
 
-func mustJSON(v any) json.RawMessage {
-	b, _ := json.Marshal(v)
-	return b
-}

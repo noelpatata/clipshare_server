@@ -20,12 +20,13 @@ import (
 	"time"
 
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
+
+	"clipshare/internal/consts"
 )
 
 const (
-	CaCertFile  = "ca.pem"
-	CaKeyFile   = "ca.key"
-	P12Password = "clipshare"
+	CaCertFile = "ca.pem"
+	CaKeyFile  = "ca.key"
 )
 
 // File names for a named device. Server certs always use the fixed
@@ -203,7 +204,7 @@ func ExportP12(dir, name, kind, out string) error {
 	// Legacy (3DES + SHA-1) is used deliberately: Android's bundled
 	// BouncyCastle PKCS#12 parser does not handle Modern's PBMAC1/AES
 	// bags on all API levels. Legacy is universally supported.
-	der, err := pkcs12.Legacy.Encode(key, cert, []*x509.Certificate{caCert}, P12Password)
+	der, err := pkcs12.Legacy.Encode(key, cert, []*x509.Certificate{caCert}, consts.P12Password)
 	if err != nil {
 		return fmt.Errorf("pkcs12 encode: %w", err)
 	}

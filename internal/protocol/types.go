@@ -1,8 +1,10 @@
-package server
+// Package protocol defines the JSON-over-WebSocket wire format shared by the
+// desktop daemon, its localhost API, and outbound peer connections.
+package protocol
 
 import "encoding/json"
 
-// Protocol message types exchanged over the WebSocket.
+// Message types exchanged over the WebSocket.
 const (
 	MsgHello     = "hello"
 	MsgClipboard = "clipboard"
@@ -11,10 +13,25 @@ const (
 	MsgError     = "error"
 )
 
-// Clipboard content kinds carried in ClipboardMsg.Type.
+// Content kinds carried in ClipboardMsg.Type.
 const (
 	ContentText  = "text"
 	ContentImage = "image"
+)
+
+// Platform strings announced in hello messages.
+const (
+	PlatformDesktop = "desktop"
+	PlatformAndroid = "android"
+)
+
+// Error codes returned in ErrorMsg.Code.
+const (
+	ErrBadHello     = "bad_hello"
+	ErrNotWhitelisted = "not_whitelisted"
+	ErrBadJSON      = "bad_json"
+	ErrBadClipboard = "bad_clipboard"
+	ErrUnknownType  = "unknown_type"
 )
 
 type Hello struct {
@@ -42,4 +59,13 @@ type ErrorMsg struct {
 type Envelope struct {
 	Type string          `json:"type"`
 	Data json.RawMessage `json:"data,omitempty"`
+}
+
+// ClientInfo is the public snapshot of a connected peer.
+type ClientInfo struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Platform string `json:"platform"`
+	Version  string `json:"version"`
+	IP       string `json:"ip"`
 }
