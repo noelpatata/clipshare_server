@@ -169,6 +169,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ws accept: %v", err)
 		return
 	}
+	c.SetReadLimit(s.cfg.MaxMessageBytes)
 	client := &Client{id: newID(), conn: c, ip: clientIP(r.RemoteAddr)}
 	s.mu.Lock()
 	s.clients[client.id] = client

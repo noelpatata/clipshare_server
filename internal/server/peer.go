@@ -79,6 +79,7 @@ func (pc *PeerClient) run(ctx context.Context, host, version string) {
 			}
 			continue
 		}
+		conn.SetReadLimit(pc.srv.cfg.MaxMessageBytes)
 		backoff = time.Second
 		pc.connMu.Lock()
 		pc.conn = conn

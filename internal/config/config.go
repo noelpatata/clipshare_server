@@ -19,8 +19,9 @@ type Config struct {
 	Token         string     `toml:"token"`
 	Peers         []string   `toml:"peers"`
 	Connection    Connection `toml:"connection"`
-	TLS           TLS        `toml:"tls"`
-	MaxImageBytes int64      `toml:"max_image_bytes"`
+	TLS            TLS        `toml:"tls"`
+	MaxImageBytes  int64      `toml:"max_image_bytes"`
+	MaxMessageBytes int64     `toml:"max_message_bytes"`
 }
 
 type Server struct {
@@ -76,7 +77,8 @@ func Default() *Config {
 			Cert:    filepath.Join(certsDir, "server.pem"),
 			Key:     filepath.Join(certsDir, "server.key"),
 		},
-		MaxImageBytes: 10 * 1024 * 1024,
+		MaxImageBytes:   10 * 1024 * 1024,
+		MaxMessageBytes: 10 * 1024 * 1024,
 	}
 }
 
@@ -101,6 +103,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.MaxImageBytes <= 0 {
 		cfg.MaxImageBytes = 10 * 1024 * 1024
+	}
+	if cfg.MaxMessageBytes <= 0 {
+		cfg.MaxMessageBytes = 10 * 1024 * 1024
 	}
 	return cfg, nil
 }
@@ -135,6 +140,7 @@ watch = %d
 token = %q
 peers = %s
 max_image_bytes = %d
+max_message_bytes = %d
 
 [connection]
 mode = %q
@@ -152,7 +158,7 @@ ca = %q
 cert = %q
 key = %q
 `, c.DeviceName, c.Mdns, c.Broadcast, c.Watch, c.Token, tomlSlice(c.Peers),
-		c.MaxImageBytes, c.Connection.Mode, tomlWhitelist(c.Connection.Whitelist),
+		c.MaxImageBytes, c.MaxMessageBytes, c.Connection.Mode, tomlWhitelist(c.Connection.Whitelist),
 		c.Server.Port, c.API.Port,
 		c.TLS.Enabled, c.TLS.CA, c.TLS.Cert, c.TLS.Key)
 
