@@ -1,0 +1,26 @@
+# Binaries and build artifacts
+clipshare
+clipshare.exe
+clipshare-linux-amd64
+dist/
+
+# Git
+.git/
+.gitignore
+
+# GitHub Actions
+.github/
+
+# Documentation
+README.md
+docs/
+
+# IDE and editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
