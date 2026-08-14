@@ -65,7 +65,7 @@ previous hardcoded values; change only if you know you need to.
 | `timing.echo_window` | duration | `"30s"` | How long loop-protection remembers the last local broadcast. |
 | `timing.one_shot_timeout` | duration | `"120s"` | How long `clipshare share` waits for a client. |
 | `timing.one_shot_grace` | duration | `"5s"` | How long a one-shot server stays up after delivering. |
-| `timing.watch_remote_timeout` | duration | `"120s"` | Default timeout for `clipshare watch --remote`. |
+| `timing.watch_remote_timeout` | duration | `"120s"` | Default timeout for `clipshare watch`. |
 
 ### Clipboard (Linux only)
 
@@ -81,6 +81,15 @@ When `backend = "auto"` the daemon tries, in order:
 1. `wl-copy` / `wl-paste` if `WAYLAND_DISPLAY` is set.
 2. `xclip`
 3. `xsel`
+
+### Log
+
+The `[log]` section controls where and how verbosely the daemon logs.
+
+| key | type | default | description |
+|-----|------|---------|-------------|
+| `log.level` | string | `"info"` | `"debug"`, `"info"`, `"warn"`, or `"error"`. Messages below the level are suppressed. `"debug"` is the most verbose (per-peer retries, per-write details). |
+| `log.file` | string | `""` | Log file path. Empty logs to stderr (the default for systemd/service users). A non-empty path is opened append-only with `0600` permissions. |
 
 ### Linux clipboard setup
 
@@ -223,6 +232,10 @@ mdns = true
 beacon = true
 beacon_port = 40404
 beacon_addr = "255.255.255.255"
+
+[log]
+level = "info"
+file = ""
 
 [timing]
 hello_timeout = "5s"

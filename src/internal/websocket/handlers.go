@@ -3,13 +3,13 @@ package websocket
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"time"
 
 	"github.com/coder/websocket"
 
 	"clipshare/src/internal/config"
+	"clipshare/src/internal/log"
 	"clipshare/src/internal/protocol"
 )
 
@@ -22,15 +22,21 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
-		log.Printf("ws accept: %v", err)
+		log.Errorf("ws accept: %v", err)
 		return
 	}
 	c.SetReadLimit(s.cfg.MaxMessageBytes)
 	client := &Client{id: newID(), conn: c, ip: clientIP(r.RemoteAddr), cfg: s.cfg}
 	s.mu.Lock()
+	if s.maxClients > 0 && len(s.clients) >= s.maxClients {
+		s.mu.Unlock()
+		log.Debugf("rejecting extra connection from %s: server accepts one client", client.ip)
+		c.Close(websocket.StatusPolicyViolation, "one client at a time")
+		return
+	}
 	s.clients[client.id] = client
 	s.mu.Unlock()
-	log.Printf("client connected: %s (%s)", client.id, client.ip)
+	log.Infof("client connected: %s (%s)", client.id, client.ip)
 	s.handleClient(r.Context(), client)
 }
 
@@ -40,7 +46,7 @@ func (s *Server) handleClient(ctx context.Context, c *Client) {
 		delete(s.clients, c.id)
 		s.mu.Unlock()
 		c.conn.Close(websocket.StatusNormalClosure, "bye")
-		log.Printf("client disconnected: %s", c.id)
+		log.Infof("client disconnected: %s", c.id)
 	}()
 
 	readCtx, cancel := context.WithTimeout(ctx, s.cfg.Timing.HelloTimeout)
@@ -64,14 +70,14 @@ func (s *Server) handleClient(ctx context.Context, c *Client) {
 	// allowed to talk to us (in addition to token/TLS checks).
 	if s.cfg.Connection.Mode == config.ModeWhitelist && !s.cfg.InWhitelist(c.ip, hello.Name) {
 		s.sendError(c, "not_whitelisted", "device not in whitelist")
-		log.Printf("rejected non-whitelisted hello from %q (%s)", hello.Name, c.ip)
+		log.Warnf("rejected non-whitelisted hello from %q (%s)", hello.Name, c.ip)
 		return
 	}
 
 	c.name = hello.Name
 	c.platform = hello.Platform
 	c.version = hello.Version
-	log.Printf("hello from %q (%s v%s)", hello.Name, hello.Platform, hello.Version)
+	log.Infof("hello from %q (%s v%s)", hello.Name, hello.Platform, hello.Version)
 
 	s.mu.Lock()
 	hook := s.onClientConnect

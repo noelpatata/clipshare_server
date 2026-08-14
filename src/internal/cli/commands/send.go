@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os/signal"
 	"strings"
 	"sync"
@@ -16,6 +15,7 @@ import (
 	"clipshare/src/internal/config"
 	"clipshare/src/internal/consts"
 	"clipshare/src/internal/discover"
+	"clipshare/src/internal/log"
 	"clipshare/src/internal/version"
 	"clipshare/src/internal/websocket"
 )
@@ -65,7 +65,7 @@ func (sendCmd) Run(cfg *config.Config, args []string) error {
 	client := api.NewClient(consts.Localhost, cfg.API.Port)
 	if err := client.Send(text); err != nil {
 		if errors.Is(err, syscall.ECONNREFUSED) {
-			log.Printf("no daemon running; starting transient one-shot")
+			log.Infof("no daemon running; starting transient one-shot")
 			return runOneShot(cfg, content)
 		}
 		return err
@@ -81,35 +81,36 @@ func runOneShot(cfg *config.Config, content clip.Content) error {
 	defer stop()
 
 	srv := websocket.New(cfg, version.Version, func(c clip.Content, from string) {
-		log.Printf("received from %q during one-shot (ignored)", from)
+		log.Debugf("received from %q during one-shot (ignored)", from)
 	})
+	srv.SetMaxClients(1)
 	delivered := make(chan struct{})
 	var once sync.Once
 	srv.SetConnectHook(func() {
 		once.Do(func() {
 			srv.BroadcastLocal(content, cfg.DeviceName)
-			log.Printf("one-shot: delivered to client")
+			log.Infof("one-shot: delivered to client")
 			close(delivered)
 		})
 	})
 	go func() {
 		if err := srv.ListenAndServe(ctx); err != nil {
-			log.Printf("ws server: %v", err)
+			log.Errorf("ws server: %v", err)
 		}
 	}()
 
 	if err := discover.Start(ctx, cfg); err != nil {
-		log.Printf("discovery: %v", err)
+		log.Errorf("discovery: %v", err)
 	}
 
 	timeout := cfg.Timing.OneShotTimeout
 	grace := cfg.Timing.OneShotGrace
-	log.Printf("one-shot: waiting for a client to connect (max %s)...", timeout)
+	log.Infof("one-shot: waiting for a client to connect (max %s)...", timeout)
 	select {
 	case <-ctx.Done():
 		return nil
 	case <-time.After(timeout):
-		log.Printf("one-shot: timed out with no client")
+		log.Infof("one-shot: timed out with no client")
 		return nil
 	case <-delivered:
 		// Keep the server up briefly so the client can confirm receipt.

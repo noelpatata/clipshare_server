@@ -2,6 +2,7 @@ package commands
 
 import (
 	"clipshare/src/internal/config"
+	"clipshare/src/internal/log"
 )
 
 // Command is a CLI subcommand that does not need a loaded config.
@@ -26,6 +27,13 @@ type configLoader struct {
 func (w *configLoader) Run(args []string) error {
 	cfg, err := config.Load()
 	if err != nil {
+		return err
+	}
+	lv, err := log.ParseLevel(cfg.Log.Level)
+	if err != nil {
+		return err
+	}
+	if err := log.Setup(lv, cfg.Log.File); err != nil {
 		return err
 	}
 	return w.cmd.Run(cfg, args)

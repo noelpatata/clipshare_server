@@ -3,8 +3,9 @@ package clip
 import (
 	"context"
 	"hash/fnv"
-	"log"
 	"time"
+
+	"clipshare/src/internal/log"
 )
 
 // Watcher polls the clipboard for external changes and fires onChange with
@@ -48,7 +49,7 @@ func (w *Watcher) Run(ctx context.Context) {
 		case <-t.C:
 			c, err := w.clip.Read()
 			if err != nil {
-				log.Printf("clipboard read: %v", err)
+				log.Errorf("clipboard read: %v", err)
 				continue
 			}
 			h := hashContent(c)
@@ -68,7 +69,7 @@ func (w *Watcher) Run(ctx context.Context) {
 // not rebroadcast it as an external change.
 func (w *Watcher) LocalWrite(c Content) {
 	if err := w.clip.Write(c); err != nil {
-		log.Printf("clipboard write: %v", err)
+		log.Errorf("clipboard write: %v", err)
 		return
 	}
 	w.skipHash = hashContent(c)

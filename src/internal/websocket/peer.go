@@ -3,7 +3,6 @@ package websocket
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 
 	"clipshare/src/internal/clip"
 	"clipshare/src/internal/consts"
+	"clipshare/src/internal/log"
 	"clipshare/src/internal/protocol"
 )
 
@@ -50,7 +50,7 @@ func (pc *PeerClient) run(ctx context.Context, host, version string) {
 		scheme = consts.SchemeWSS
 		tlsCfg, err := pc.srv.peerTLSConfig()
 		if err != nil {
-			log.Printf("peer %s: tls config: %v", host, err)
+			log.Errorf("peer %s: tls config: %v", host, err)
 			return
 		}
 		opts = &websocket.DialOptions{
@@ -70,7 +70,7 @@ func (pc *PeerClient) run(ctx context.Context, host, version string) {
 			if ctx.Err() != nil {
 				return
 			}
-			log.Printf("peer %s: dial failed: %v (retry in %s)", host, err, backoff)
+			log.Debugf("peer %s: dial failed: %v (retry in %s)", host, err, backoff)
 			select {
 			case <-ctx.Done():
 				return
@@ -87,7 +87,7 @@ func (pc *PeerClient) run(ctx context.Context, host, version string) {
 		pc.conn = conn
 		pc.connMu.Unlock()
 		pc.srv.registerPeer(pc)
-		log.Printf("peer %s: connected", host)
+		log.Infof("peer %s: connected", host)
 
 		hello, _ := json.Marshal(protocol.Envelope{Type: protocol.MsgHello, Data: protocol.MustJSON(protocol.Hello{
 			Name: pc.srv.cfg.DeviceName, Platform: protocol.PlatformDesktop, Version: version,
@@ -114,7 +114,7 @@ func (pc *PeerClient) readLoop(ctx context.Context, conn *websocket.Conn, host s
 	for {
 		_, msg, err := conn.Read(ctx)
 		if err != nil {
-			log.Printf("peer %s: read: %v", host, err)
+			log.Debugf("peer %s: read: %v", host, err)
 			return
 		}
 		var env protocol.Envelope
@@ -173,4 +173,3 @@ func (pc *PeerClient) close() {
 		pc.conn = nil
 	}
 }
-

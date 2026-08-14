@@ -3,11 +3,11 @@ package discover
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net"
 	"time"
 
 	"clipshare/src/internal/config"
+	"clipshare/src/internal/log"
 )
 
 // BeaconMsg is the JSON broadcast sent over UDP to announce the daemon.
@@ -44,7 +44,7 @@ func (b *Beacon) Run(ctx context.Context) error {
 
 	send := func() {
 		if _, err := conn.Write(payload); err != nil {
-			log.Printf("beacon send: %v", err)
+			log.Errorf("beacon send: %v", err)
 		}
 	}
 	send()
@@ -71,7 +71,7 @@ func (b *Beacon) payload() []byte {
 // beaconIfEnabled starts UDP beacon broadcasting when configured to do so.
 func beaconIfEnabled(ctx context.Context, cfg *config.Config) error {
 	if !cfg.Discovery.Beacon {
-		log.Printf("udp beacon disabled")
+		log.Infof("udp beacon disabled")
 		return nil
 	}
 	b := &Beacon{

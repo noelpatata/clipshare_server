@@ -2,13 +2,13 @@ package app
 
 import (
 	"context"
-	"log"
 
 	"clipshare/src/internal/api"
 	"clipshare/src/internal/clip"
 	"clipshare/src/internal/config"
 	"clipshare/src/internal/consts"
 	"clipshare/src/internal/discover"
+	"clipshare/src/internal/log"
 	"clipshare/src/internal/websocket"
 )
 
@@ -59,7 +59,7 @@ func (a *App) Run(ctx context.Context, opts RunOptions) error {
 	// LocalWrite when watching is enabled (avoiding rebroadcast loops).
 	if !opts.NoWatch {
 		a.watcher = clip.NewWatcher(a.clipboard, a.cfg.WatchInterval(), func(content clip.Content) {
-			log.Printf("local clipboard changed")
+			log.Debugf("local clipboard changed")
 			a.server.BroadcastLocal(content, a.cfg.DeviceName)
 		})
 		a.server.SetOnRemoteClip(a.writeRemote)
@@ -68,23 +68,23 @@ func (a *App) Run(ctx context.Context, opts RunOptions) error {
 		a.server.SetOnRemoteClip(func(content clip.Content, from string) {
 			a.clipboard.Write(content)
 		})
-		log.Printf("clipboard watching disabled; only receiving")
+		log.Infof("clipboard watching disabled; only receiving")
 	}
 
 	go func() {
 		if err := a.server.ListenAndServe(ctx); err != nil {
-			log.Printf("ws server: %v", err)
+			log.Errorf("ws server: %v", err)
 		}
 	}()
 	go a.server.RunPeers(ctx, a.version, a.writeRemote)
 
 	if err := discover.Start(ctx, a.cfg); err != nil {
-		log.Printf("discovery: %v", err)
+		log.Errorf("discovery: %v", err)
 	}
 
 	go func() {
 		if err := a.api.Listen(ctx); err != nil {
-			log.Printf("api server: %v", err)
+			log.Errorf("api server: %v", err)
 		}
 	}()
 
@@ -92,13 +92,13 @@ func (a *App) Run(ctx context.Context, opts RunOptions) error {
 	if a.cfg.TLS.Enabled {
 		proto = consts.SchemeWSS
 	}
-	log.Printf("clipshare %s running as %q (%s %s:%d, api %s:%d)",
+	log.Infof("clipshare %s running as %q (%s %s:%d, api %s:%d)",
 		a.version, a.cfg.DeviceName, proto,
 		a.cfg.Server.Bind, a.cfg.Server.Port,
 		a.cfg.API.Bind, a.cfg.API.Port)
 
 	<-ctx.Done()
-	log.Printf("shutting down")
+	log.Infof("shutting down")
 	return nil
 }
 
@@ -112,7 +112,7 @@ func (a *App) writeRemote(content clip.Content, from string) {
 	} else if content.Text == "" {
 		return
 	}
-	log.Printf("remote clipboard from %q -> writing to local", from)
+	log.Debugf("remote clipboard from %q -> writing to local", from)
 	if a.watcher != nil {
 		a.watcher.LocalWrite(content)
 	} else {

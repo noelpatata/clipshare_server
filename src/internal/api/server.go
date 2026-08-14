@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"time"
@@ -12,13 +11,14 @@ import (
 	"clipshare/src/internal/clip"
 	"clipshare/src/internal/config"
 	"clipshare/src/internal/consts"
+	"clipshare/src/internal/log"
 )
 
 // Server serves the localhost control API.
 type Server struct {
-	cfg    *config.Config
-	src    StatusSource
-	bcast  Broadcaster
+	cfg     *config.Config
+	src     StatusSource
+	bcast   Broadcaster
 	version string
 }
 
@@ -43,7 +43,7 @@ func (s *Server) Listen(ctx context.Context) error {
 		<-ctx.Done()
 		srv.Close()
 	}()
-	log.Printf("api listening on %s", addr)
+	log.Infof("api listening on %s", addr)
 	if err := srv.Serve(ln); err != nil && ctx.Err() == nil {
 		return err
 	}

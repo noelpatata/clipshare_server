@@ -25,6 +25,7 @@ type Config struct {
 	Discovery       Discovery  `toml:"discovery"`
 	Timing          Timing     `toml:"timing"`
 	Clipboard       Clipboard  `toml:"clipboard"`
+	Log             Log        `toml:"log"`
 }
 
 type Server struct {
@@ -76,6 +77,12 @@ type Timing struct {
 	WatchRemoteTimeout time.Duration `toml:"watch_remote_timeout"`
 }
 
+// Log controls the daemon's log output.
+type Log struct {
+	Level string `toml:"level"` // "debug" | "info" | "warn" | "error"
+	File  string `toml:"file"`  // empty = stderr
+}
+
 // TLS enables mutual TLS. CA is the shared trust root; Cert/Key are this
 // device's identity (a server cert, SANs covering this device's LAN IPs).
 type TLS struct {
@@ -118,6 +125,7 @@ func Default() *Config {
 			BeaconAddr: "255.255.255.255",
 		},
 		Clipboard: Clipboard{Backend: "auto"},
+		Log:       Log{Level: "info"},
 		Timing: Timing{
 			HelloTimeout:       5 * time.Second,
 			WriteTimeout:       3 * time.Second,
@@ -167,6 +175,7 @@ func Load() (*Config, error) {
 		cfg.Discovery.BeaconAddr = "255.255.255.255"
 	}
 	cfg.Clipboard.Backend = normalizeClipboardBackend(cfg.Clipboard.Backend)
+	cfg.Log.Level = normalizeLogLevel(cfg.Log.Level)
 
 	// Keep the deprecated top-level field in sync so re-saving is consistent.
 	cfg.Mdns = cfg.Discovery.MDNS
@@ -277,6 +286,10 @@ beacon_addr = %q
 [clipboard]
 backend = %q
 
+[log]
+level = %q
+file = %q
+
 [timing]
 hello_timeout = %q
 write_timeout = %q
@@ -299,6 +312,7 @@ key = %q
 		c.API.Port, c.API.Bind,
 		c.Discovery.MDNS, c.Discovery.Beacon, c.Discovery.BeaconPort, c.Discovery.BeaconAddr,
 		c.Clipboard.Backend,
+		c.Log.Level, c.Log.File,
 		c.Timing.HelloTimeout, c.Timing.WriteTimeout, c.Timing.PeerKeepalive,
 		c.Timing.PeerBackoffInitial, c.Timing.PeerBackoffMax, c.Timing.EchoWindow,
 		c.Timing.OneShotTimeout, c.Timing.OneShotGrace, c.Timing.WatchRemoteTimeout,
@@ -349,6 +363,15 @@ func normalizeClipboardBackend(v string) string {
 		return v
 	default:
 		return "auto"
+	}
+}
+
+func normalizeLogLevel(v string) string {
+	switch v {
+	case "", "debug", "info", "warn", "warning", "error":
+		return v
+	default:
+		return "info"
 	}
 }
 

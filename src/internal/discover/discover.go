@@ -3,9 +3,9 @@ package discover
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"clipshare/src/internal/config"
+	"clipshare/src/internal/log"
 )
 
 // Start begins LAN discovery (mDNS + UDP beacon) when the connection mode is
@@ -14,7 +14,7 @@ import (
 // method fails to start; failures after startup are logged.
 func Start(ctx context.Context, cfg *config.Config) error {
 	if cfg.Connection.Mode != config.ModeDiscover {
-		log.Printf("connection mode %q: not advertising (whitelist-only)", cfg.Connection.Mode)
+		log.Infof("connection mode %q: not advertising (whitelist-only)", cfg.Connection.Mode)
 		return nil
 	}
 
@@ -24,7 +24,7 @@ func Start(ctx context.Context, cfg *config.Config) error {
 
 	go func() {
 		if err := beaconIfEnabled(ctx, cfg); err != nil {
-			log.Printf("udp beacon failed: %v", err)
+			log.Errorf("udp beacon failed: %v", err)
 		}
 	}()
 

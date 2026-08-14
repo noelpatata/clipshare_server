@@ -2,13 +2,13 @@ package discover
 
 import (
 	"context"
-	"log"
 	"strconv"
 
 	"github.com/grandcat/zeroconf"
 
 	"clipshare/src/internal/config"
 	"clipshare/src/internal/consts"
+	"clipshare/src/internal/log"
 )
 
 // Advertise announces the daemon over mDNS. domain "" means "local".
@@ -23,14 +23,14 @@ func Advertise(ctx context.Context, name string, port int, tls bool) error {
 		<-ctx.Done()
 		server.Shutdown()
 	}()
-	log.Printf("mdns: advertising %s.%s on port %d (tls=%v)", name, consts.ServiceType, port, tls)
+	log.Infof("mdns: advertising %s.%s on port %d (tls=%v)", name, consts.ServiceType, port, tls)
 	return nil
 }
 
 // advertiseIfEnabled starts mDNS advertising when configured to do so.
 func advertiseIfEnabled(ctx context.Context, cfg *config.Config) error {
 	if !cfg.Discovery.MDNS {
-		log.Printf("mdns advertising disabled")
+		log.Infof("mdns advertising disabled")
 		return nil
 	}
 	return Advertise(ctx, cfg.DeviceName, cfg.Server.Port, cfg.TLS.Enabled)

@@ -2,9 +2,9 @@ package websocket
 
 import (
 	"encoding/json"
-	"log"
 
 	"clipshare/src/internal/clip"
+	"clipshare/src/internal/log"
 	"clipshare/src/internal/protocol"
 )
 
@@ -12,7 +12,7 @@ import (
 // origin (skipID "" means broadcast to all).
 func (s *Server) Broadcast(content clip.Content, from, skipID string) {
 	if content.Kind == clip.KindImage && int64(len(content.Image)) > s.cfg.MaxImageBytes {
-		log.Printf("dropping image broadcast: %d bytes exceeds max_image_bytes=%d",
+		log.Warnf("dropping image broadcast: %d bytes exceeds max_image_bytes=%d",
 			len(content.Image), s.cfg.MaxImageBytes)
 		return
 	}
@@ -25,7 +25,7 @@ func (s *Server) Broadcast(content clip.Content, from, skipID string) {
 			continue
 		}
 		if err := c.write(msg); err != nil {
-			log.Printf("broadcast to %s: %v", id, err)
+			log.Errorf("broadcast to %s: %v", id, err)
 		}
 	}
 	for pc := range s.peers {
@@ -42,7 +42,7 @@ func (s *Server) sendError(c *Client, code, msg string) {
 	payload, _ := json.Marshal(protocol.ErrorMsg{Code: code, Msg: msg})
 	m, _ := json.Marshal(protocol.Envelope{Type: protocol.MsgError, Data: payload})
 	if err := c.write(m); err != nil {
-		log.Printf("error send: %v", err)
+		log.Errorf("error send: %v", err)
 	}
 }
 

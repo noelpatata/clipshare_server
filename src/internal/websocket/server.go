@@ -3,7 +3,6 @@ package websocket
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"sync"
@@ -12,6 +11,7 @@ import (
 	"clipshare/src/internal/clip"
 	"clipshare/src/internal/config"
 	"clipshare/src/internal/consts"
+	"clipshare/src/internal/log"
 	"clipshare/src/internal/protocol"
 )
 
@@ -22,6 +22,7 @@ type Server struct {
 	clients         map[string]*Client
 	peers           map[*PeerClient]struct{}
 	mu              sync.Mutex
+	maxClients      int
 	onRemoteClip    func(content clip.Content, from string)
 	onClientConnect func()
 	lastBroadcast   uint64
@@ -47,6 +48,16 @@ func (s *Server) SetConnectHook(fn func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onClientConnect = fn
+}
+
+// SetMaxClients limits how many WebSocket clients the server keeps at once.
+// Additional connections are closed immediately. 0 means unlimited. Transient
+// modes (watch, one-shot send) use 1 so a client that bursts several parallel
+// connections only holds one.
+func (s *Server) SetMaxClients(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.maxClients = n
 }
 
 // SetOnRemoteClip sets the handler for remote clipboard content. It allows the
@@ -95,7 +106,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		srv.Close()
 		ln.Close()
 	}()
-	log.Printf("%s server listening on %s", scheme, addr)
+	log.Infof("%s server listening on %s", scheme, addr)
 	if err := srv.Serve(ln); err != nil && ctx.Err() == nil {
 		return err
 	}

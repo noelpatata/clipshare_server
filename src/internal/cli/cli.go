@@ -50,10 +50,9 @@ Usage:
   clipshare send [<text>]        push text (or your clipboard) to peers.
                                  [--oneshot]: run as transient one-shot server,
                                  independent from daemon
-	clipshare watch                print clipboard changes until interrupted
-	clipshare watch --remote       temporarily listen (max 120s, --timeout to
-                                 change) and write the first incoming push to the
-                                 local clipboard, then exit
+	clipshare watch [--timeout <dur>]  temporarily listen (max 120s) and write
+                                 the first incoming push to the local
+                                 clipboard, then exit
   
   clipshare status               show daemon status + connected clients
   clipshare config --init        write default config to %s

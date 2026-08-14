@@ -91,8 +91,7 @@ clipshare daemon [--no-watch]   run server + clipboard watcher (foreground)
                                 starts a transient daemon if none is running
 clipshare send <text>           push text via a running daemon to connected peers
 clipshare copy <text>           set the local clipboard only
-clipshare watch                 print clipboard changes until interrupted
-clipshare watch --remote        temporarily listen (max 120s) and write the
+clipshare watch [--timeout d]   temporarily listen (max 120s) and write the
                                 first incoming push to the local clipboard,
                                 then exit
 clipshare status                show daemon status + connected clients
@@ -128,8 +127,8 @@ clipshare status            # verify the daemon is up and who is connected
 
 - **Always-on:** run `clipshare daemon` — it watches for remote content and
   writes it straight to the local clipboard (no extra command needed).
-- **On demand:** run `clipshare watch --remote` to temporarily listen (max
-  120s, `--timeout` to change). The first push from your phone is written to
+- **On demand:** run `clipshare watch` to temporarily listen (max 120s,
+  `--timeout` to change). The first push from your phone is written to
   the local clipboard and printed, then it exits.
 - Copying on the phone pushes while the ClipShare app is open on the phone
   (Android 10+ blocks background clipboard reads; enable background capture in
@@ -153,6 +152,8 @@ clipshare status            # verify the daemon is up and who is connected
 | `[server] port` | `40403` | WebSocket port                              |
 | `[api] port`    | `40405` | localhost control API                       |
 | `[tls] enabled/ca/cert/key` | `false` | mutual TLS (see docs) |
+| `[log] level`   | `"info"` | log verbosity: `debug` / `info` / `warn` / `error` |
+| `[log] file`    | `""`     | log file path (empty = stderr)              |
 
 Ports: WS/TCP `40403`, UDP beacon `40404`, localhost API `40405` (127.0.0.1 only).
 
@@ -219,6 +220,7 @@ internal/config/      TOML config loading/saving
 internal/certs/       private CA + certificate issuance (clipshare cert)
 internal/consts/      non-configurable application constants
 internal/discover/    mDNS advertising + UDP beacon broadcasting
+internal/log/         leveled logging (level + file from config)
 internal/protocol/    JSON-over-WebSocket wire types + codec
 internal/websocket/   WebSocket server + outbound peers
 internal/api/         localhost HTTP control API + client
