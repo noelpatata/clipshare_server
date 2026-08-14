@@ -1,4 +1,4 @@
 package version
 
 // Version is the current clipshare release version.
-const Version = "0.1.0"
+const Version = "1.0.0"
