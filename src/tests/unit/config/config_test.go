@@ -39,6 +39,9 @@ func TestDefaults(t *testing.T) {
 	if cfg.Clipboard.Backend != "auto" {
 		t.Errorf("clipboard backend: got %q, want auto", cfg.Clipboard.Backend)
 	}
+	if !cfg.TLS.VerifyHostname {
+		t.Error("TLS verify_hostname: got false, want true (strict by default)")
+	}
 }
 
 func TestPathUsesEnvVar(t *testing.T) {
@@ -102,6 +105,9 @@ beacon_addr = "192.168.1.255"
 
 [log]
 level = "debug"
+
+[tls]
+verify_hostname = false
 `
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -143,6 +149,9 @@ level = "debug"
 	if cfg.Log.Level != "debug" {
 		t.Errorf("log level: got %q, want debug", cfg.Log.Level)
 	}
+	if cfg.TLS.VerifyHostname {
+		t.Error("TLS verify_hostname: got true, want false (parsed from toml)")
+	}
 }
 
 func TestSaveAndLoadRoundtrip(t *testing.T) {
@@ -157,6 +166,7 @@ func TestSaveAndLoadRoundtrip(t *testing.T) {
 	cfg.Connection.Whitelist = []config.WhitelistEntry{
 		{Name: "a", IP: "10.0.0.1"},
 	}
+	cfg.TLS.VerifyHostname = false
 
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("Save failed: %v", err)
@@ -181,6 +191,9 @@ func TestSaveAndLoadRoundtrip(t *testing.T) {
 	}
 	if len(loaded.Connection.Whitelist) != 1 || loaded.Connection.Whitelist[0].Name != "a" {
 		t.Errorf("whitelist: got %+v", loaded.Connection.Whitelist)
+	}
+	if loaded.TLS.VerifyHostname {
+		t.Error("verify_hostname: got true after roundtrip, want false")
 	}
 }
 

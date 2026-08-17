@@ -57,6 +57,6 @@ Usage:
   clipshare status               show daemon status + connected clients
   clipshare config --init        write default config to %s
   clipshare cert                 manage the mTLS private CA and certificates
-                                 (init / issue / export / list)
+                                 (init / issue / export / qr / list)
 `, version.Version, config.Path())
 }

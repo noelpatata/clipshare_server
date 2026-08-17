@@ -5,8 +5,15 @@ Windows), watches the clipboard, and pushes changes to connected clients over
 WebSocket — so a copy on your desktop appears on your phone (and vice versa).
 
 The Android companion app lives in the separate repo
-[`clipshare_client`](../clipshare_client) and auto-discovers the daemon, so no
+[`clipshare_android`](../clipshare_android) and auto-discovers the daemon, so no
 IP configuration is needed.
+
+That Android app can also run in **server mode**, letting two Android devices
+share a clipboard directly without a desktop daemon. In server mode the phone
+advertises itself via mDNS/UDP and accepts inbound WebSocket connections from
+other ClipShare clients. TLS is supported using a CA + server certificate
+generated on the phone itself; the CA certificate is exported and imported on
+the peer device.
 
 ## Features
 
@@ -96,7 +103,7 @@ clipshare watch [--timeout d]   temporarily listen (max 120s) and write the
                                 then exit
 clipshare status                show daemon status + connected clients
 clipshare config --init         write default config to ~/.config/clipshare/config.toml
-clipshare cert                  manage mTLS certificates (init/issue/export/list)
+clipshare cert                  manage mTLS certificates (init/issue/export/qr/list)
 ```
 
 ### Sending text
@@ -189,15 +196,42 @@ systemctl --user status clipshare
 
 - **Mutual TLS (mTLS):** optional but recommended. `clipshare cert init`
   creates a private CA; `clipshare cert issue` signs a server cert and client
-  certs; `clipshare cert export` produces a `.p12` to import on the phone. When
+  certs; `clipshare cert export` produces a `.p12` to import on the phone, or
+  `clipshare cert qr` prints a QR code the ClipShare app can scan to import it.
+  When
   `tls.enabled = true` the server requires a CA-signed client certificate and
-  clients verify the server against the same CA + its SAN IPs (see
-  [docs/configuration.md](docs/configuration.md)).
+  clients verify the server against the same CA. Hostname/IP matching is
+  controlled by `tls.verify_hostname` (default `true`, strict); set it to
+  `false` so certificates stay valid across wifi/DHCP changes
+  (see [docs/configuration.md](docs/configuration.md)).
 - **Token:** a shared secret passed as `?token=` (encrypted under `wss`).
   Without TLS it travels in plaintext on the URL.
 - **Whitelist mode:** set `connection.mode = "whitelist"` to stop advertising
   and only accept (desktop) / connect to (phone) whitelisted devices.
 - The control API listens on `127.0.0.1` only.
+
+## Android server mode
+
+The [`clipshare_android`](../clipshare_android) app can switch from **Client**
+to **Server** mode in Settings. When server mode is active:
+
+- The phone listens for WebSocket connections on port `40403`.
+- It advertises itself via mDNS `_clipshare._tcp` and UDP beacons on `40404`.
+- Other Android (or desktop) clients can discover and connect to it.
+- Clipboard changes are relayed between all connected clients.
+
+### TLS between Android devices
+
+1. On the server phone, enable **TLS** in Server settings. The app generates a
+   local CA + server certificate.
+2. Tap **Share CA certificate** (or **Copy CA certificate**) and transfer it to
+   the client phone.
+3. On the client phone, import the CA under **Client settings → Trusted CA
+   certificates**.
+4. The client can now connect to the Android server over `wss://`.
+
+No mutual TLS is required for Android-to-Android connections; the client only
+needs to trust the server's CA.
 
 ## Protocol
 

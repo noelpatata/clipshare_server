@@ -62,6 +62,7 @@ func copyFixture(t *testing.T, name string) string {
 // timeout expires.
 func waitForLog(ctx context.Context, c testcontainers.Container, want string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	var last string
 	for time.Now().Before(deadline) {
 		logs, err := c.Logs(ctx)
 		if err != nil {
@@ -72,12 +73,13 @@ func waitForLog(ctx context.Context, c testcontainers.Container, want string, ti
 		if err != nil {
 			return err
 		}
-		if strings.Contains(string(data), want) {
+		last = string(data)
+		if strings.Contains(last, want) {
 			return nil
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	return nil // timeout, caller should fail
+	return fmt.Errorf("timed out waiting %s for log %q; last output: %.500s", timeout, want, last)
 }
 
 // daemonReadyLog returns the log line to wait for depending on whether TLS is
@@ -387,14 +389,22 @@ func startWatch(ctx context.Context, t *testing.T, net *testcontainers.DockerNet
 }
 
 // generateCerts creates a temporary CA, server cert, and client cert for mTLS
-// tests. It returns the directory containing all PEM files.
+// tests. It returns the directory containing all PEM files. The server cert
+// carries the default 127.0.0.1/localhost SANs.
 func generateCerts(t *testing.T) string {
+	t.Helper()
+	return generateCertsWithSANs(t, []string{"127.0.0.1", "localhost"})
+}
+
+// generateCertsWithSANs is like generateCerts but lets the caller choose the
+// SANs embedded in the server certificate.
+func generateCertsWithSANs(t *testing.T, serverSANs []string) string {
 	t.Helper()
 	dir := tempDir(t)
 	if err := certs.Init(dir); err != nil {
 		t.Fatalf("init CA: %v", err)
 	}
-	if err := certs.Issue(dir, "daemon-tls", "server", []string{"127.0.0.1", "localhost"}); err != nil {
+	if err := certs.Issue(dir, "daemon-tls", "server", serverSANs); err != nil {
 		t.Fatalf("issue server cert: %v", err)
 	}
 	if err := certs.Issue(dir, "android", "client", nil); err != nil {

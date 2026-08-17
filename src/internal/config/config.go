@@ -84,12 +84,16 @@ type Log struct {
 }
 
 // TLS enables mutual TLS. CA is the shared trust root; Cert/Key are this
-// device's identity (a server cert, SANs covering this device's LAN IPs).
+// device's identity (a server cert). VerifyHostname controls whether outbound
+// peer dials require the server certificate to match the dialed host/IP SAN.
+// It defaults to true (strict); set false to make certificates network
+// independent (trust anchored on the CA alone).
 type TLS struct {
-	Enabled bool   `toml:"enabled"`
-	CA      string `toml:"ca"`
-	Cert    string `toml:"cert"`
-	Key     string `toml:"key"`
+	Enabled        bool   `toml:"enabled"`
+	CA             string `toml:"ca"`
+	Cert           string `toml:"cert"`
+	Key            string `toml:"key"`
+	VerifyHostname bool   `toml:"verify_hostname"`
 }
 
 const (
@@ -111,10 +115,11 @@ func Default() *Config {
 		Peers:      []string{},
 		Connection: Connection{Mode: ModeDiscover},
 		TLS: TLS{
-			Enabled: false,
-			CA:      filepath.Join(certsDir, "ca.pem"),
-			Cert:    filepath.Join(certsDir, "server.pem"),
-			Key:     filepath.Join(certsDir, "server.key"),
+			Enabled:        false,
+			CA:             filepath.Join(certsDir, "ca.pem"),
+			Cert:           filepath.Join(certsDir, "server.pem"),
+			Key:            filepath.Join(certsDir, "server.key"),
+			VerifyHostname: true,
 		},
 		MaxImageBytes:   10 * 1024 * 1024,
 		MaxMessageBytes: 10 * 1024 * 1024,
@@ -306,6 +311,7 @@ enabled = %v
 ca = %q
 cert = %q
 key = %q
+verify_hostname = %v
 `, c.DeviceName, c.Mdns, c.Broadcast, c.Watch, c.Token, tomlSlice(c.Peers),
 		c.MaxImageBytes, c.MaxMessageBytes, c.Connection.Mode, tomlWhitelist(c.Connection.Whitelist),
 		c.Server.Port, c.Server.Bind,
@@ -316,7 +322,7 @@ key = %q
 		c.Timing.HelloTimeout, c.Timing.WriteTimeout, c.Timing.PeerKeepalive,
 		c.Timing.PeerBackoffInitial, c.Timing.PeerBackoffMax, c.Timing.EchoWindow,
 		c.Timing.OneShotTimeout, c.Timing.OneShotGrace, c.Timing.WatchRemoteTimeout,
-		c.TLS.Enabled, c.TLS.CA, c.TLS.Cert, c.TLS.Key)
+		c.TLS.Enabled, c.TLS.CA, c.TLS.Cert, c.TLS.Key, c.TLS.VerifyHostname)
 
 	f, err := os.Create(Path())
 	if err != nil {

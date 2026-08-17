@@ -49,7 +49,9 @@ test: ## Run unit tests and go vet
 
 integration-test: ## Build image and run Docker integration tests
 	docker build -t clipshare:integration .
-	go test ./src/tests/integration/... -count=1 -v
+	# -parallel 2: each test creates its own Docker bridge network; hosts with a
+	# small default address pool (e.g. this one) exhaust it under full parallelism.
+	go test ./src/tests/integration/... -count=1 -v -parallel 2
 
 integration-test-clean: ## Remove integration test Docker images
 	docker rmi clipshare:integration || true

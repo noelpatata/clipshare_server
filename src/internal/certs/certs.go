@@ -3,6 +3,8 @@
 package certs
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -27,6 +29,10 @@ import (
 const (
 	CaCertFile = "ca.pem"
 	CaKeyFile  = "ca.key"
+
+	// QrFormatVersion is the wire version of the compact QR envelope shared
+	// with the Android app (see QrBytes).
+	QrFormatVersion = 0x01
 )
 
 // File names for a named device. Server certs always use the fixed
@@ -179,44 +185,107 @@ func LoadKeyPair(certPath, keyPath string) (tls.Certificate, error) {
 // ExportP12 writes a PKCS#12 bundle (key + leaf + CA chain) that the Android
 // app can import, e.g. for a client device.
 func ExportP12(dir, name, kind, out string) error {
-	certPEM, err := os.ReadFile(filepath.Join(dir, CertFile(name, kind)))
+	der, err := P12Bytes(dir, name, kind)
 	if err != nil {
 		return err
+	}
+	return os.WriteFile(out, der, 0o600)
+}
+
+// P12Bytes returns the PKCS#12 bundle (key + leaf + CA chain) for a device.
+func P12Bytes(dir, name, kind string) ([]byte, error) {
+	certPEM, err := os.ReadFile(filepath.Join(dir, CertFile(name, kind)))
+	if err != nil {
+		return nil, err
 	}
 	keyPEM, err := os.ReadFile(filepath.Join(dir, KeyFile(name, kind)))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	caPEM, err := os.ReadFile(filepath.Join(dir, CaCertFile))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cert, err := parseCertPEM(certPEM)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	key, err := parseKeyPEM(keyPEM)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	caCert, err := parseCertPEM(caPEM)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Legacy (3DES + SHA-1) is used deliberately: Android's bundled
 	// BouncyCastle PKCS#12 parser does not handle Modern's PBMAC1/AES
 	// bags on all API levels. Legacy is universally supported.
 	der, err := pkcs12.Legacy.Encode(key, cert, []*x509.Certificate{caCert}, consts.P12Password)
 	if err != nil {
-		return fmt.Errorf("pkcs12 encode: %w", err)
+		return nil, fmt.Errorf("pkcs12 encode: %w", err)
 	}
-	f, err := os.Create(out)
+	return der, nil
+}
+
+// QrBytes returns a compact QR payload body for importing a device identity
+// into the ClipShare app: the PKCS#8 key and leaf certificate in DER, gzipped.
+// The app decompresses this and rebuilds the PKCS#12 bundle locally.
+//
+// The CA certificate is deliberately NOT included: it is shared server
+// infrastructure that only needs importing once (see QrCaContent), and
+// dropping it keeps the QR small enough to scan reliably.
+func QrBytes(dir, name, kind string) ([]byte, error) {
+	certPEM, err := os.ReadFile(filepath.Join(dir, CertFile(name, kind)))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer f.Close()
-	_, err = f.Write(der)
-	return err
+	keyPEM, err := os.ReadFile(filepath.Join(dir, KeyFile(name, kind)))
+	if err != nil {
+		return nil, err
+	}
+	cert, err := parseCertPEM(certPEM)
+	if err != nil {
+		return nil, err
+	}
+	key, err := parseKeyPEM(keyPEM)
+	if err != nil {
+		return nil, err
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return nil, err
+	}
+
+	// Envelope: version byte + two u16-length-prefixed DER segments
+	// (key, leaf certificate).
+	body := make([]byte, 0, 1+4+len(keyDER)+len(cert.Raw))
+	body = append(body, QrFormatVersion)
+	body = appendSeg(body, keyDER)
+	body = appendSeg(body, cert.Raw)
+
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(body); err != nil {
+		return nil, err
+	}
+	if err := gz.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// QrCaContent returns the PEM of the private CA. The phone needs this once
+// (per server) to trust the server's certificate; it is deliberately separate
+// from the device QRs so those stay small.
+func QrCaContent(dir string) ([]byte, error) {
+	return os.ReadFile(filepath.Join(dir, CaCertFile))
+}
+
+// appendSeg appends data to dst with a big-endian u16 length prefix.
+func appendSeg(dst, data []byte) []byte {
+	dst = append(dst, byte(len(data)>>8), byte(len(data)))
+	return append(dst, data...)
 }
 
 // List returns a human-readable summary of the certificates in dir.
