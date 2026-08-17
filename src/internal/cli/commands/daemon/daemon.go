@@ -1,4 +1,5 @@
-package commands
+// Package daemon implements the `clipshare daemon` subcommand.
+package daemon
 
 import (
 	"context"
@@ -10,10 +11,10 @@ import (
 	"clipshare/src/internal/version"
 )
 
-// daemonCmd runs the persistent daemon.
-type daemonCmd struct{}
+// Command runs the persistent server + clipboard watcher.
+type Command struct{}
 
-func (daemonCmd) Run(cfg *config.Config, args []string) error {
+func (Command) Run(cfg *config.Config, args []string) error {
 	noWatch := len(args) >= 1 && args[0] == "--no-watch"
 	a, err := app.New(cfg, version.Version)
 	if err != nil {

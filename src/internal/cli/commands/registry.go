@@ -1,6 +1,12 @@
 package commands
 
 import (
+	"clipshare/src/internal/cli/commands/cert"
+	"clipshare/src/internal/cli/commands/configcmd"
+	"clipshare/src/internal/cli/commands/daemon"
+	"clipshare/src/internal/cli/commands/send"
+	"clipshare/src/internal/cli/commands/status"
+	"clipshare/src/internal/cli/commands/watch"
 	"clipshare/src/internal/config"
 	"clipshare/src/internal/log"
 )
@@ -15,7 +21,8 @@ type ConfigCommand interface {
 	Run(cfg *config.Config, args []string) error
 }
 
-// withConfig wraps a ConfigCommand so it loads the config once before running.
+// withConfig wraps a ConfigCommand so config.Load() happens once and logging
+// is set up before the subcommand runs.
 func withConfig(cmd ConfigCommand) Command {
 	return &configLoader{cmd: cmd}
 }
@@ -39,14 +46,11 @@ func (w *configLoader) Run(args []string) error {
 	return w.cmd.Run(cfg, args)
 }
 
-// Registry maps subcommand names to their implementations. Config-requiring
-// commands are wrapped with withConfig() so config.Load() happens once and
-// errors are handled in a single place.
 var Registry = map[string]Command{
-	"daemon": withConfig(daemonCmd{}),
-	"send":   withConfig(sendCmd{}),
-	"watch":  withConfig(watchCmd{}),
-	"status": withConfig(statusCmd{}),
-	"config": withConfig(configCmd{}),
-	"cert":   certCmd{},
+	"daemon": withConfig(daemon.Command{}),
+	"send":   withConfig(send.Command{}),
+	"watch":  withConfig(watch.Command{}),
+	"status": withConfig(status.Command{}),
+	"config": withConfig(configcmd.Command{}),
+	"cert":   cert.Command{},
 }

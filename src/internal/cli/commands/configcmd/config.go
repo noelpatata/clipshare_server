@@ -1,4 +1,5 @@
-package commands
+// Package configcmd implements the `clipshare config` subcommand.
+package configcmd
 
 import (
 	"fmt"
@@ -6,10 +7,10 @@ import (
 	"clipshare/src/internal/config"
 )
 
-// configCmd initializes or re-saves the config file.
-type configCmd struct{}
+// Command writes or re-saves the config file.
+type Command struct{}
 
-func (configCmd) Run(cfg *config.Config, args []string) error {
+func (Command) Run(cfg *config.Config, args []string) error {
 	if len(args) >= 1 && args[0] == "--init" {
 		cfg := config.Default()
 		if err := cfg.Save(); err != nil {

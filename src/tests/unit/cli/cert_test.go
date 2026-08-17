@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"clipshare/src/internal/certs"
-	"clipshare/src/internal/cli/commands"
 )
 
 // TestQrContent locks the QR payload format shared with the Android app: a
@@ -25,7 +24,7 @@ func TestQrContent(t *testing.T) {
 		t.Fatalf("issue client cert: %v", err)
 	}
 
-	content, err := commands.QrContent(dir, "phone1", "client")
+	content, err := certs.QrContent(dir, "phone1", "client")
 	if err != nil {
 		t.Fatalf("QrContent: %v", err)
 	}

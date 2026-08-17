@@ -3,41 +3,27 @@
 package certs
 
 import (
-	"bytes"
-	"compress/gzip"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/pem"
 	"fmt"
 	"math/big"
 	"net"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"time"
-
-	pkcs12 "software.sslmate.com/src/go-pkcs12"
-
-	"clipshare/src/internal/consts"
 )
 
 const (
 	CaCertFile = "ca.pem"
 	CaKeyFile  = "ca.key"
-
-	// QrFormatVersion is the wire version of the compact QR envelope shared
-	// with the Android app (see QrBytes).
-	QrFormatVersion = 0x01
 )
 
-// File names for a named device. Server certs always use the fixed
-// server.pem/server.key (matching the config defaults); client certs keep
-// the device name so one certs dir can hold several.
+// CertFile returns the certificate file name for a device. Server certs always
+// use server.pem (matching the config defaults); client certs keep the device
+// name so one certs dir can hold several.
 func CertFile(name, kind string) string {
 	if kind == "server" {
 		return "server.pem"
@@ -45,6 +31,7 @@ func CertFile(name, kind string) string {
 	return name + "-" + kind + ".pem"
 }
 
+// KeyFile returns the private key file name for a device (see CertFile).
 func KeyFile(name, kind string) string {
 	if kind == "server" {
 		return "server.key"
@@ -96,9 +83,8 @@ func Init(dir string) error {
 }
 
 // Issue signs a leaf certificate for name (CN) with the CA in dir. kind is
-// "server" or "client"; server certs also receive a ClientAuth EKU so a
-// desktop cert can be used for outbound peer dials too. server certs embed
-// the given IPs as SAN entries (defaults to the machine's non-loopback IPs).
+// "server" or "client"; server certs embed the given IPs as SAN entries
+// (defaults to the machine's non-loopback IPs).
 func Issue(dir, name, kind string, ips []string) error {
 	if kind != "server" && kind != "client" {
 		return fmt.Errorf("kind must be 'server' or 'client'")
@@ -160,236 +146,10 @@ func LoadCA(dir string) (*x509.Certificate, *ecdsa.PrivateKey, error) {
 	return caCert, key, nil
 }
 
-// LoadPool builds a CertPool from a PEM CA file.
-func LoadPool(path string) (*x509.CertPool, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read CA %s: %w", path, err)
-	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(data) {
-		return nil, fmt.Errorf("no certificates found in %s", path)
-	}
-	return pool, nil
-}
-
-// LoadKeyPair loads a TLS certificate/key pair.
-func LoadKeyPair(certPath, keyPath string) (tls.Certificate, error) {
-	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("load keypair (%s, %s): %w", certPath, keyPath, err)
-	}
-	return cert, nil
-}
-
-// ExportP12 writes a PKCS#12 bundle (key + leaf + CA chain) that the Android
-// app can import, e.g. for a client device.
-func ExportP12(dir, name, kind, out string) error {
-	der, err := P12Bytes(dir, name, kind)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(out, der, 0o600)
-}
-
-// P12Bytes returns the PKCS#12 bundle (key + leaf + CA chain) for a device.
-func P12Bytes(dir, name, kind string) ([]byte, error) {
-	certPEM, err := os.ReadFile(filepath.Join(dir, CertFile(name, kind)))
-	if err != nil {
-		return nil, err
-	}
-	keyPEM, err := os.ReadFile(filepath.Join(dir, KeyFile(name, kind)))
-	if err != nil {
-		return nil, err
-	}
-	caPEM, err := os.ReadFile(filepath.Join(dir, CaCertFile))
-	if err != nil {
-		return nil, err
-	}
-	cert, err := parseCertPEM(certPEM)
-	if err != nil {
-		return nil, err
-	}
-	key, err := parseKeyPEM(keyPEM)
-	if err != nil {
-		return nil, err
-	}
-	caCert, err := parseCertPEM(caPEM)
-	if err != nil {
-		return nil, err
-	}
-	// Legacy (3DES + SHA-1) is used deliberately: Android's bundled
-	// BouncyCastle PKCS#12 parser does not handle Modern's PBMAC1/AES
-	// bags on all API levels. Legacy is universally supported.
-	der, err := pkcs12.Legacy.Encode(key, cert, []*x509.Certificate{caCert}, consts.P12Password)
-	if err != nil {
-		return nil, fmt.Errorf("pkcs12 encode: %w", err)
-	}
-	return der, nil
-}
-
-// QrBytes returns a compact QR payload body for importing a device identity
-// into the ClipShare app: the PKCS#8 key and leaf certificate in DER, gzipped.
-// The app decompresses this and rebuilds the PKCS#12 bundle locally.
-//
-// The CA certificate is deliberately NOT included: it is shared server
-// infrastructure that only needs importing once (see QrCaContent), and
-// dropping it keeps the QR small enough to scan reliably.
-func QrBytes(dir, name, kind string) ([]byte, error) {
-	certPEM, err := os.ReadFile(filepath.Join(dir, CertFile(name, kind)))
-	if err != nil {
-		return nil, err
-	}
-	keyPEM, err := os.ReadFile(filepath.Join(dir, KeyFile(name, kind)))
-	if err != nil {
-		return nil, err
-	}
-	cert, err := parseCertPEM(certPEM)
-	if err != nil {
-		return nil, err
-	}
-	key, err := parseKeyPEM(keyPEM)
-	if err != nil {
-		return nil, err
-	}
-	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
-	if err != nil {
-		return nil, err
-	}
-
-	// Envelope: version byte + two u16-length-prefixed DER segments
-	// (key, leaf certificate).
-	body := make([]byte, 0, 1+4+len(keyDER)+len(cert.Raw))
-	body = append(body, QrFormatVersion)
-	body = appendSeg(body, keyDER)
-	body = appendSeg(body, cert.Raw)
-
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	if _, err := gz.Write(body); err != nil {
-		return nil, err
-	}
-	if err := gz.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-// QrCaContent returns the PEM of the private CA. The phone needs this once
-// (per server) to trust the server's certificate; it is deliberately separate
-// from the device QRs so those stay small.
-func QrCaContent(dir string) ([]byte, error) {
-	return os.ReadFile(filepath.Join(dir, CaCertFile))
-}
-
-// appendSeg appends data to dst with a big-endian u16 length prefix.
-func appendSeg(dst, data []byte) []byte {
-	dst = append(dst, byte(len(data)>>8), byte(len(data)))
-	return append(dst, data...)
-}
-
-// List returns a human-readable summary of the certificates in dir.
-func List(dir string) (string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("no certs directory at %s (run 'clipshare cert init')", dir)
-		}
-		return "", err
-	}
-	var b strings.Builder
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".pem") {
-			continue
-		}
-		cert, err := parseCertFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			continue
-		}
-		fmt.Fprintf(&b, "%-32s CN=%-20s not-after=%s\n",
-			e.Name(), cert.Subject.CommonName, cert.NotAfter.Format(time.RFC3339))
-	}
-	return b.String(), nil
-}
-
-// LocalIPs returns the machine's non-loopback IPv4 addresses.
-func LocalIPs() []string {
-	var out []string
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return out
-	}
-	for _, a := range addrs {
-		ipnet, ok := a.(*net.IPNet)
-		if !ok || ipnet.IP.IsLoopback() || ipnet.IP.To4() == nil {
-			continue
-		}
-		out = append(out, ipnet.IP.String())
-	}
-	sort.Strings(out)
-	return out
-}
-
 func randSerial() *big.Int {
 	n, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
 		return big.NewInt(time.Now().UnixNano())
 	}
 	return n
-}
-
-func writePEM(path, blockType string, der []byte, mode os.FileMode) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return pem.Encode(f, &pem.Block{Type: blockType, Bytes: der})
-}
-
-func parseCertFile(path string) (*x509.Certificate, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return parseCertPEM(data)
-}
-
-func parseCertPEM(data []byte) (*x509.Certificate, error) {
-	block, _ := pem.Decode(data)
-	if block == nil || block.Type != "CERTIFICATE" {
-		return nil, fmt.Errorf("no CERTIFICATE block found")
-	}
-	return x509.ParseCertificate(block.Bytes)
-}
-
-func parseKeyFile(path string) (*ecdsa.PrivateKey, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return parseKeyPEM(data)
-}
-
-func parseKeyPEM(data []byte) (*ecdsa.PrivateKey, error) {
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return nil, fmt.Errorf("no key block found")
-	}
-	switch block.Type {
-	case "PRIVATE KEY":
-		k, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-		if err != nil {
-			return nil, err
-		}
-		ec, ok := k.(*ecdsa.PrivateKey)
-		if !ok {
-			return nil, fmt.Errorf("key is not ECDSA")
-		}
-		return ec, nil
-	case "EC PRIVATE KEY":
-		return x509.ParseECPrivateKey(block.Bytes)
-	default:
-		return nil, fmt.Errorf("unsupported key block type %q", block.Type)
-	}
 }

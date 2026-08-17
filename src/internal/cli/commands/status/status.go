@@ -1,4 +1,5 @@
-package commands
+// Package status implements the `clipshare status` subcommand.
+package status
 
 import (
 	"fmt"
@@ -8,10 +9,10 @@ import (
 	"clipshare/src/internal/consts"
 )
 
-// statusCmd queries the running daemon's status.
-type statusCmd struct{}
+// Command shows the running daemon's status and connected clients.
+type Command struct{}
 
-func (statusCmd) Run(cfg *config.Config, args []string) error {
+func (Command) Run(cfg *config.Config, args []string) error {
 	client := api.NewClient(consts.Localhost, cfg.API.Port)
 	st, err := client.Status()
 	if err != nil {

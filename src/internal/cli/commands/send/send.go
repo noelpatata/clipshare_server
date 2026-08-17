@@ -1,4 +1,5 @@
-package commands
+// Package send implements the `clipshare send` subcommand.
+package send
 
 import (
 	"context"
@@ -20,17 +21,14 @@ import (
 	"clipshare/src/internal/websocket"
 )
 
-// sendCmd pushes text (or the current clipboard) to connected peers.
-// It can operate in two modes:
-// - Default: tries to send via running daemon, falls back to one-shot if no daemon
-// - --oneshot: always runs a transient one-shot server (independent from daemon)
-type sendCmd struct{}
+// Command pushes text (or the current clipboard) to peers. It sends via the
+// running daemon by default, or runs a transient one-shot server with
+// --oneshot (or automatically when no daemon is up).
+type Command struct{}
 
-func (sendCmd) Run(cfg *config.Config, args []string) error {
+func (Command) Run(cfg *config.Config, args []string) error {
 	var forceOneShot bool
 	var textArgs []string
-
-	// Parse flags
 	for _, arg := range args {
 		if arg == "--oneshot" {
 			forceOneShot = true
@@ -74,8 +72,8 @@ func (sendCmd) Run(cfg *config.Config, args []string) error {
 	return nil
 }
 
-// runOneShot runs a short-lived server, broadcasts content once a peer
-// connects, waits briefly, then exits.
+// runOneShot starts a short-lived server, broadcasts the content once a peer
+// connects, then exits after a grace period.
 func runOneShot(cfg *config.Config, content clip.Content) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -113,7 +111,6 @@ func runOneShot(cfg *config.Config, content clip.Content) error {
 		log.Infof("one-shot: timed out with no client")
 		return nil
 	case <-delivered:
-		// Keep the server up briefly so the client can confirm receipt.
 		select {
 		case <-ctx.Done():
 			return nil

@@ -1,4 +1,5 @@
-package commands
+// Package watch implements the `clipshare watch` subcommand.
+package watch
 
 import (
 	"context"
@@ -15,10 +16,10 @@ import (
 	"clipshare/src/internal/websocket"
 )
 
-// watchCmd waits for a single remote push and writes it to the local clipboard.
-type watchCmd struct{}
+// Command waits for a single remote push and writes it to the local clipboard.
+type Command struct{}
 
-func (watchCmd) Run(cfg *config.Config, args []string) error {
+func (Command) Run(cfg *config.Config, args []string) error {
 	timeout := time.Duration(0)
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--timeout" && i+1 < len(args) {
@@ -32,12 +33,12 @@ func (watchCmd) Run(cfg *config.Config, args []string) error {
 			return fmt.Errorf("usage: clipshare watch [--timeout <dur>]")
 		}
 	}
-	return runWatch(cfg, timeout)
+	return run(cfg, timeout)
 }
 
-// runWatch starts a temporary server that writes the first incoming push to
-// the local clipboard and exits.
-func runWatch(cfg *config.Config, timeout time.Duration) error {
+// run starts a temporary server that writes the first incoming push to the
+// local clipboard, then exits.
+func run(cfg *config.Config, timeout time.Duration) error {
 	if timeout <= 0 {
 		timeout = cfg.Timing.WatchRemoteTimeout
 	}
@@ -95,7 +96,6 @@ func runWatch(cfg *config.Config, timeout time.Duration) error {
 	}
 }
 
-// closeOnce closes c exactly once; safe to call from multiple goroutines.
 func closeOnce(c chan struct{}) {
 	select {
 	case <-c:
