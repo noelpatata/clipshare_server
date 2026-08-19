@@ -23,16 +23,17 @@ type BeaconMsg struct {
 // The shared token is deliberately NOT included (plaintext leak on the LAN);
 // authentication is handled over the TLS handshake or token query.
 type Beacon struct {
-	Name     string
-	Port     int
-	Addr     string
-	Interval time.Duration
-	TLS      bool
+	Name       string
+	ServerPort int
+	BeaconPort int
+	Addr       string
+	Interval   time.Duration
+	TLS        bool
 }
 
 // Run starts the beacon loop and blocks until ctx is cancelled.
 func (b *Beacon) Run(ctx context.Context) error {
-	conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.ParseIP(b.Addr), Port: b.Port})
+	conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.ParseIP(b.Addr), Port: b.BeaconPort})
 	if err != nil {
 		return err
 	}
@@ -60,7 +61,7 @@ func (b *Beacon) Run(ctx context.Context) error {
 }
 
 func (b *Beacon) payload() []byte {
-	msg := BeaconMsg{Name: b.Name, Port: b.Port, TLS: b.TLS, TS: time.Now().Unix()}
+	msg := BeaconMsg{Name: b.Name, Port: b.ServerPort, TLS: b.TLS, TS: time.Now().Unix()}
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return []byte("{}")
@@ -75,11 +76,12 @@ func beaconIfEnabled(ctx context.Context, cfg *config.Config) error {
 		return nil
 	}
 	b := &Beacon{
-		Name:     cfg.DeviceName,
-		Port:     cfg.Server.Port,
-		Addr:     cfg.Discovery.BeaconAddr,
-		Interval: cfg.BroadcastInterval(),
-		TLS:      cfg.TLS.Enabled,
+		Name:       cfg.DeviceName,
+		ServerPort: cfg.Server.Port,
+		BeaconPort: cfg.Discovery.BeaconPort,
+		Addr:       cfg.Discovery.BeaconAddr,
+		Interval:   cfg.BroadcastInterval(),
+		TLS:        cfg.TLS.Enabled,
 	}
 	return b.Run(ctx)
 }
