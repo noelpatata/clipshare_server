@@ -12,9 +12,10 @@ import (
 )
 
 // TestQrContent locks the QR payload format shared with the Android app: a
-// "clipshare-p12:" prefix followed by unpadded base64 of a gzipped envelope
-// (version byte + u16-length-prefixed key/leaf DER), small enough to fit in a
-// scannable QR code. The CA is deliberately not included (see --type ca).
+// "clipshare-p12:" prefix followed by unpadded base64 of a gzipped envelope of
+// three u16-length-prefixed DER segments (key, leaf, CA), small enough to fit
+// in a scannable QR code. The CA is bundled so a single scan installs the
+// private key for mutual TLS and trusts the server.
 func TestQrContent(t *testing.T) {
 	dir := t.TempDir()
 	if err := certs.Init(dir); err != nil {
@@ -44,7 +45,7 @@ func TestQrContent(t *testing.T) {
 	if len(payload) == 0 {
 		t.Fatal("decoded payload is empty")
 	}
-	if len(content) > 700 {
+	if len(content) > 900 {
 		t.Errorf("QR payload is %d chars; too large to scan reliably", len(content))
 	}
 
@@ -57,14 +58,14 @@ func TestQrContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gunzip: %v", err)
 	}
-	if len(body) == 0 || body[0] != certs.QrFormatVersion {
-		t.Fatalf("envelope missing version byte %d", certs.QrFormatVersion)
+	if len(body) == 0 {
+		t.Fatal("envelope is empty")
 	}
 
-	// Two segments: key then leaf certificate. No CA (that is shared via
-	// the separate "clipshare-ca:" QR).
-	off := 1
-	for i := 0; i < 2; i++ {
+	// Three segments: key, leaf certificate, then CA certificate (auto-trusted
+	// by the app on import).
+	off := 0
+	for i := 0; i < 3; i++ {
 		if off+2 > len(body) {
 			t.Fatalf("envelope truncated at segment %d", i)
 		}
@@ -73,35 +74,12 @@ func TestQrContent(t *testing.T) {
 		if off+segLen > len(body) {
 			t.Fatalf("envelope segment %d overruns buffer", i)
 		}
+		if segLen == 0 {
+			t.Fatalf("envelope segment %d is empty", i)
+		}
 		off += segLen
 	}
 	if off != len(body) {
 		t.Fatalf("envelope has %d trailing bytes", len(body)-off)
-	}
-}
-
-// TestCaQrContent locks the "clipshare-ca:" QR payload: unpadded base64 of the
-// PEM CA certificate, which the app imports once to trust the server.
-func TestCaQrContent(t *testing.T) {
-	dir := t.TempDir()
-	if err := certs.Init(dir); err != nil {
-		t.Fatalf("init CA: %v", err)
-	}
-
-	pem, err := certs.QrCaContent(dir)
-	if err != nil {
-		t.Fatalf("QrCaContent: %v", err)
-	}
-	content := "clipshare-ca:" + base64.RawStdEncoding.EncodeToString(pem)
-	if !strings.HasPrefix(content, "clipshare-ca:") {
-		t.Fatalf("content %q missing clipshare-ca: prefix", content)
-	}
-	raw := strings.TrimPrefix(content, "clipshare-ca:")
-	decoded, err := base64.RawStdEncoding.DecodeString(raw)
-	if err != nil {
-		t.Fatalf("base64 decode: %v", err)
-	}
-	if !strings.Contains(string(decoded), "BEGIN CERTIFICATE") {
-		t.Fatalf("CA payload is not PEM: %q", decoded)
 	}
 }

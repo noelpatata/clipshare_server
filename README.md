@@ -22,7 +22,7 @@ the peer device.
 - **Loop protection** — never rebroadcasts content it wrote itself
 - **Zero-config discovery** — mDNS (`_clipshare._tcp`) + UDP beacons on `40404`
   so the phone connects automatically
-- **One-shot `share`** — push text (or your current clipboard) without keeping a
+- **One-shot `send`** — push text (or your current clipboard) without keeping a
   daemon running; it starts transiently, delivers, and exits
 - Cross-platform: **Linux** (Wayland + X11) and **Windows**
 - Optional shared **token** authentication
@@ -44,8 +44,8 @@ make build                # -> ./clipshare
 make build-windows        # -> ./clipshare.exe
 
 # or with Go directly
-go build -o clipshare ./cmd/clipshare          # current platform
-GOOS=windows GOARCH=amd64 go build -o clipshare.exe ./cmd/clipshare
+go build -o clipshare ./src/cmd/clipshare           # current platform
+GOOS=windows GOARCH=amd64 go build -o clipshare.exe ./src/cmd/clipshare
 ```
 
 ## Install to your PATH
@@ -67,14 +67,14 @@ Alternatively use `go install` (puts the binary in `$(go env GOPATH)/bin`,
 usually `~/go/bin`):
 
 ```sh
-go install ./cmd/clipshare
+go install ./src/cmd/clipshare
 ```
 
 ### Windows
 
 ```powershell
 # build (in the repo)
-go build -o clipshare.exe ./cmd/clipshare
+go build -o clipshare.exe ./src/cmd/clipshare
 
 # move it somewhere permanent, e.g.
 mkdir $HOME\bin
@@ -94,10 +94,10 @@ clipshare --help
 
 ```
 clipshare daemon [--no-watch]   run server + clipboard watcher (foreground)
-  clipshare share [<text>]        push text (or your clipboard) to peers;
-                                starts a transient daemon if none is running
-clipshare send <text>           push text via a running daemon to connected peers
-clipshare copy <text>           set the local clipboard only
+clipshare send [<text>]         push text (or your clipboard) to peers.
+                                Sends via a running daemon, or starts a
+                                transient one-shot server if none is running.
+                                Use --oneshot to force the transient server.
 clipshare watch [--timeout d]   temporarily listen (max 120s) and write the
                                 first incoming push to the local clipboard,
                                 then exit
@@ -111,13 +111,15 @@ clipshare cert                  manage mTLS certificates (init/issue/export/qr/l
 **One-shot (no daemon left running)** — the recommended way:
 
 ```sh
-clipshare share "hello from the laptop"   # explicit text
-clipshare share                           # sends your current clipboard
+clipshare send "hello from the laptop"   # explicit text
+clipshare send                           # sends your current clipboard
+clipshare send --oneshot "hello"         # force the transient server
 ```
 
-`share` checks for a running daemon; if none exists it starts a transient
-one, waits up to 120s for a client (the phone's sync service auto-connects via
-discovery), delivers the text, and exits ~5s later. Nothing stays running.
+`send` checks for a running daemon; if none exists it starts a transient
+one-shot server, waits up to 120s for a client (the phone's sync service
+auto-connects via discovery), delivers the text, and exits ~5s later. Nothing
+stays running.
 
 **Persistent daemon** — for always-on sync (clipboard watching + receiving):
 
@@ -127,8 +129,8 @@ clipshare send "hello"      # push from a second terminal / keybinding
 clipshare status            # verify the daemon is up and who is connected
 ```
 
-> `share` and `send` do the same push; `share` additionally falls back to a
-> transient daemon and reads your clipboard when no text is given.
+`send` pushes via the running daemon when present and falls back to the
+transient one-shot server otherwise; `--oneshot` forces the transient server.
 
 ### Receiving on the laptop
 
@@ -158,7 +160,7 @@ clipshare status            # verify the daemon is up and who is connected
 | `connection.whitelist` | `[]`  | allowed devices by name/ip in whitelist mode |
 | `[server] port` | `40403` | WebSocket port                              |
 | `[api] port`    | `40405` | localhost control API                       |
-| `[tls] enabled/ca/cert/key` | `false` | mutual TLS (see docs) |
+| `[tls] enabled/ca/cert/key/verify_hostname` | `false` | mutual TLS (see docs) |
 | `[log] level`   | `"info"` | log verbosity: `debug` / `info` / `warn` / `error` |
 | `[log] file`    | `""`     | log file path (empty = stderr)              |
 
@@ -197,8 +199,9 @@ systemctl --user status clipshare
 - **Mutual TLS (mTLS):** optional but recommended. `clipshare cert init`
   creates a private CA; `clipshare cert issue` signs a server cert and client
   certs; `clipshare cert export` produces a `.p12` to import on the phone, or
-  `clipshare cert qr` prints a QR code the ClipShare app can scan to import it.
-  When
+  `clipshare cert qr` prints a QR code the ClipShare app can scan to import it
+  (the QR bundles the key, certificate and CA, so a single scan enables mTLS
+  and trusts the server). When
   `tls.enabled = true` the server requires a CA-signed client certificate and
   clients verify the server against the same CA. Hostname/IP matching is
   controlled by `tls.verify_hostname` (default `true`, strict); set it to
@@ -223,15 +226,18 @@ to **Server** mode in Settings. When server mode is active:
 ### TLS between Android devices
 
 1. On the server phone, enable **TLS** in Server settings. The app generates a
-   local CA + server certificate.
-2. Tap **Share CA certificate** (or **Copy CA certificate**) and transfer it to
-   the client phone.
-3. On the client phone, import the CA under **Client settings → Trusted CA
-   certificates**.
+   local CA + server certificate (or tap **Regenerate cert** to reissue).
+2. On the server phone, tap **Show client cert QR** — it encodes a fresh
+   client certificate and the CA in a single scan — or **Share .p12 bundle** to
+   export the certificate bundle as a file.
+3. On the client phone, scan the QR (or import the `.p12`) under **Client
+   settings**. One import installs the client certificate and trusts the
+   server's CA.
 4. The client can now connect to the Android server over `wss://`.
 
-No mutual TLS is required for Android-to-Android connections; the client only
-needs to trust the server's CA.
+Mutual TLS is always required when server TLS is enabled: the client must
+present a certificate signed by the server's CA, and the server verifies the
+client against that same CA.
 
 ## Protocol
 
@@ -247,16 +253,16 @@ JSON over WebSocket (port `40403`):
 ## Project layout
 
 ```
-cmd/clipshare/        entry point (thin main)
-internal/cli/         command dispatch + App lifecycle (daemon, share, send, ...)
-internal/clip/        clipboard backends (Linux/Wayland, Windows) + watcher
-internal/config/      TOML config loading/saving
-internal/certs/       private CA + certificate issuance (clipshare cert)
-internal/consts/      non-configurable application constants
-internal/discover/    mDNS advertising + UDP beacon broadcasting
-internal/log/         leveled logging (level + file from config)
-internal/protocol/    JSON-over-WebSocket wire types + codec
-internal/websocket/   WebSocket server + outbound peers
-internal/api/         localhost HTTP control API + client
-internal/version/     release version
+src/cmd/clipshare/        entry point (thin main)
+src/internal/cli/         command dispatch + App lifecycle (daemon, send, ...)
+src/internal/clip/        clipboard backends (Linux/Wayland, Windows) + watcher
+src/internal/config/      TOML config loading/saving
+src/internal/certs/       private CA + certificate issuance (clipshare cert)
+src/internal/consts/      non-configurable application constants
+src/internal/discover/    mDNS advertising + UDP beacon broadcasting
+src/internal/log/         leveled logging (level + file from config)
+src/internal/protocol/    JSON-over-WebSocket wire types + codec
+src/internal/websocket/   WebSocket server + outbound peers
+src/internal/api/         localhost HTTP control API + client
+src/internal/version/     release version
 ```

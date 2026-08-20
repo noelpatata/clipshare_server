@@ -64,7 +64,7 @@ previous hardcoded values; change only if you know you need to.
 | `timing.peer_backoff_initial` | duration | `"1s"` | Initial reconnect delay for outbound peers. |
 | `timing.peer_backoff_max` | duration | `"30s"` | Max reconnect delay for outbound peers. |
 | `timing.echo_window` | duration | `"30s"` | How long loop-protection remembers the last local broadcast. |
-| `timing.one_shot_timeout` | duration | `"120s"` | How long `clipshare share` waits for a client. |
+| `timing.one_shot_timeout` | duration | `"120s"` | How long `clipshare send` (one-shot) waits for a client. |
 | `timing.one_shot_grace` | duration | `"5s"` | How long a one-shot server stays up after delivering. |
 | `timing.watch_remote_timeout` | duration | `"120s"` | Default timeout for `clipshare watch`. |
 
@@ -191,7 +191,6 @@ clipshare cert issue --name desktop --type server     # server cert (auto SAN IP
 clipshare cert issue --name phone1  --type client     # phone client cert
 clipshare cert export --name phone1 --type client     # -> phone1-client.p12
 clipshare cert qr --name phone1 --type client         # print a QR the app can scan
-clipshare cert qr --type ca                           # print a QR for the CA
 ```
 
 Import the `.p12` (or scan the QR) on the phone. Set the same values for
@@ -199,13 +198,11 @@ Import the `.p12` (or scan the QR) on the phone. Set the same values for
 (exported in the legacy 3DES PKCS#12 format for Android compatibility — treat
 the file like a secret).
 
-The QR payload uses a compact gzip-compressed envelope (key + leaf in DER)
-instead of the raw `.p12`, keeping the QR small enough to scan reliably. The
-app rebuilds the PKCS#12 bundle locally. The CA is deliberately not shipped in
-device QRs (it is shared server infrastructure); import it once per server
-with `clipshare cert qr --type ca` (or via the Android server's CA QR), which
-the app stores as a trusted CA. Legacy QRs that embed the CA are still
-accepted.
+The QR payload uses a compact gzip-compressed envelope of the key, leaf
+certificate and CA (all in DER) instead of the raw `.p12`, keeping the QR small
+enough to scan reliably. The app rebuilds the PKCS#12 bundle locally and
+auto-trusts the CA, so a single scan installs the private key for mutual TLS
+and trusts the server.
 
 **Network independence:** set `tls.verify_hostname = false` so clients do not
 check the certificate against the dialed IP. You can then move between
@@ -250,6 +247,9 @@ beacon = true
 beacon_port = 40404
 beacon_addr = "255.255.255.255"
 
+[clipboard]
+backend = "auto"
+
 [log]
 level = "info"
 file = ""
@@ -270,6 +270,7 @@ enabled = false
 ca = "/home/you/.config/clipshare/certs/ca.pem"
 cert = "/home/you/.config/clipshare/certs/server.pem"
 key = "/home/you/.config/clipshare/certs/server.key"
+verify_hostname = true
 ```
 
 ## Behavior notes

@@ -1,7 +1,9 @@
 package clip
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -171,23 +173,47 @@ func (b x11Backend) writeImage(data []byte, mime string) error {
 
 // runText runs a command and returns its stdout as a string.
 func runText(name string, args ...string) (string, error) {
-	out, err := exec.Command(name, args...).Output()
+	cmd := exec.Command(name, args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return "", withStderr(err, stderr.String())
 	}
 	return string(out), nil
 }
 
 // runBin runs a command and returns its stdout as raw bytes.
 func runBin(name string, args []string) ([]byte, error) {
-	return exec.Command(name, args...).Output()
+	cmd := exec.Command(name, args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, withStderr(err, stderr.String())
+	}
+	return out, nil
 }
 
 // runStdin runs a command with the given text on stdin.
 func runStdin(name string, args []string, text string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Stdin = strings.NewReader(text)
-	return cmd.Run()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return withStderr(err, stderr.String())
+	}
+	return nil
+}
+
+// withStderr appends the command's captured stderr to err so the caller sees
+// the real failure (e.g. wl-copy's message) instead of a bare "exit status 1".
+func withStderr(err error, stderr string) error {
+	if msg := strings.TrimSpace(stderr); msg != "" {
+		return fmt.Errorf("%v: %s", err, msg)
+	}
+	return err
 }
 
 // parseTypes splits command output into non-empty MIME type strings.

@@ -1,7 +1,6 @@
 package cert
 
 import (
-	"encoding/base64"
 	"fmt"
 
 	qrcode "github.com/skip2/go-qrcode"
@@ -10,11 +9,11 @@ import (
 )
 
 func runQr(dir string, args []string) error {
-	f, err := parseFlags(args, flagOpts{allowOut: true, allowCA: true})
+	f, err := parseFlags(args, flagOpts{allowOut: true})
 	if err != nil {
 		return err
 	}
-	content, err := qrContent(dir, f)
+	content, err := certs.QrContent(dir, f.name, f.kind)
 	if err != nil {
 		return err
 	}
@@ -34,20 +33,6 @@ func runQr(dir string, args []string) error {
 	return nil
 }
 
-func qrContent(dir string, f flags) (string, error) {
-	if f.kind == "ca" {
-		pem, err := certs.QrCaContent(dir)
-		if err != nil {
-			return "", err
-		}
-		return "clipshare-ca:" + base64.RawStdEncoding.EncodeToString(pem), nil
-	}
-	return certs.QrContent(dir, f.name, f.kind)
-}
-
 func qrHint(kind, name string) string {
-	if kind == "ca" {
-		return "to trust this server's CA"
-	}
 	return fmt.Sprintf("to import the %s for %q", kind, name)
 }

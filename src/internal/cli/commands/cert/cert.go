@@ -13,7 +13,7 @@ type Command struct{}
 
 func (Command) Run(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf(`usage: clipshare cert <init|issue|export|qr|list>
+return fmt.Errorf(`usage: clipshare cert <init|issue|export|qr|list>
 
   clipshare cert init                                  create the private CA
   clipshare cert issue --name X --type server|client   issue a certificate
@@ -22,10 +22,8 @@ func (Command) Run(args []string) error {
                        [--out path.p12]
   clipshare cert qr --name X --type server|client      print a QR the ClipShare
                        [--out path.png]                  app can scan to import
-                                                         this device identity
-  clipshare cert qr --type ca [--out path.png]         print a QR for the CA
-                                                       (import once to trust the
-                                                       server)
+                                                          this device identity
+                                                          and trust this server
   clipshare cert list                                  show issued certificates`)
 	}
 	dir, err := certDir()

@@ -18,7 +18,6 @@ type flags struct {
 type flagOpts struct {
 	allowOut bool
 	allowIP  bool
-	allowCA  bool
 }
 
 // certDir is where the private CA and issued certificates live.
@@ -66,20 +65,17 @@ func parseFlags(args []string, opts flagOpts) (flags, error) {
 			return f, err
 		}
 	}
-	if err := validate(f, opts.allowCA); err != nil {
+	if err := validate(f); err != nil {
 		return f, err
 	}
 	return f, nil
 }
 
-func validate(f flags, allowCA bool) error {
-	if f.kind != "server" && f.kind != "client" && !(allowCA && f.kind == "ca") {
-		if allowCA {
-			return fmt.Errorf("--type must be 'server', 'client' or 'ca'")
-		}
+func validate(f flags) error {
+	if f.kind != "server" && f.kind != "client" {
 		return fmt.Errorf("--type must be 'server' or 'client'")
 	}
-	if f.name == "" && f.kind != "ca" {
+	if f.name == "" {
 		return fmt.Errorf("--name is required")
 	}
 	return nil
