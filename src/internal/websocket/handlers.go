@@ -140,5 +140,5 @@ func (s *Server) handleClipboard(from *Client, msg protocol.ClipboardMsg) {
 	if s.onRemoteClip != nil {
 		s.onRemoteClip(content, msg.From)
 	}
-	s.Broadcast(content, msg.From, from.id, from.name)
+	s.Broadcast(content, msg.From, from.id)
 }
