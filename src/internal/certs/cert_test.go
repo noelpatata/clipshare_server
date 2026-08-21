@@ -1,4 +1,4 @@
-package commands_test
+package certs_test
 
 import (
 	"bytes"

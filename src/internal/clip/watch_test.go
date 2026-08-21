@@ -3,6 +3,8 @@ package clip_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,12 +12,21 @@ import (
 )
 
 type fakeClipboard struct {
+	mu      sync.Mutex
 	content clip.Content
 	writes  []clip.Content
 	err     error
 }
 
+func (f *fakeClipboard) setContent(c clip.Content) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.content = c
+}
+
 func (f *fakeClipboard) Read() (clip.Content, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.err != nil {
 		return clip.Content{}, f.err
 	}
@@ -23,6 +34,8 @@ func (f *fakeClipboard) Read() (clip.Content, error) {
 }
 
 func (f *fakeClipboard) Write(c clip.Content) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.writes = append(f.writes, c)
 	f.content = c
 	return nil
@@ -48,7 +61,7 @@ func TestWatcherDetectsChange(t *testing.T) {
 
 	// Give it time to take the initial snapshot, then change the content.
 	time.Sleep(60 * time.Millisecond)
-	fb.content = clip.Content{Kind: clip.KindText, Text: "second"}
+	fb.setContent(clip.Content{Kind: clip.KindText, Text: "second"})
 
 	select {
 	case <-done:
@@ -126,7 +139,7 @@ func TestTrackPreventsRebroadcast(t *testing.T) {
 
 	time.Sleep(60 * time.Millisecond)
 	w.Track(clip.Content{Kind: clip.KindText, Text: "remote"})
-	fb.content = clip.Content{Kind: clip.KindText, Text: "remote"}
+	fb.setContent(clip.Content{Kind: clip.KindText, Text: "remote"})
 
 	time.Sleep(100 * time.Millisecond)
 	cancel()
@@ -153,5 +166,106 @@ func TestReadErrorIsLoggedAndIgnored(t *testing.T) {
 
 	if len(got) != 0 {
 		t.Errorf("expected no callbacks on read error, got %v", got)
+	}
+}
+
+// syncFakeClipboard is safe for concurrent use by the watcher goroutine and
+// the test goroutine.
+type syncFakeClipboard struct {
+	mu      sync.Mutex
+	content clip.Content
+	writes  int
+}
+
+func (f *syncFakeClipboard) Read() (clip.Content, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.content, nil
+}
+
+func (f *syncFakeClipboard) Write(c clip.Content) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.content = c
+	f.writes++
+	return nil
+}
+
+func (f *syncFakeClipboard) Close() {}
+
+// Regression test for the echo loop: a poll racing a LocalWrite used to read
+// the pre-write value (or compare against stale hashes) and rebroadcast our
+// own write as an external change, bouncing every remote clip back to its
+// sender. The watcher must never fire for content it wrote itself.
+func TestLocalWriteRaceDoesNotRebroadcast(t *testing.T) {
+	fb := &syncFakeClipboard{content: clip.Content{Kind: clip.KindText, Text: "initial"}}
+	var mu sync.Mutex
+	var got []string
+
+	w := clip.NewWatcher(fb, time.Millisecond, func(c clip.Content) {
+		mu.Lock()
+		got = append(got, c.Text)
+		mu.Unlock()
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go w.Run(ctx)
+
+	// Hammer LocalWrite while the watcher polls aggressively.
+	for i := 0; i < 200; i++ {
+		w.LocalWrite(clip.Content{Kind: clip.KindText, Text: fmt.Sprintf("remote-%d", i)})
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 0 {
+		t.Errorf("watcher rebroadcast local writes as external changes: %v", got)
+	}
+	if fb.writes != 200 {
+		t.Errorf("writes = %d, want 200", fb.writes)
+	}
+}
+
+// A genuine external change must still be reported after local writes.
+func TestExternalChangeStillFiresAfterLocalWrite(t *testing.T) {
+	fb := &syncFakeClipboard{content: clip.Content{Kind: clip.KindText, Text: "initial"}}
+	var mu sync.Mutex
+	var got []string
+	done := make(chan struct{})
+
+	w := clip.NewWatcher(fb, 10*time.Millisecond, func(c clip.Content) {
+		mu.Lock()
+		got = append(got, c.Text)
+		mu.Unlock()
+		close(done)
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go w.Run(ctx)
+
+	time.Sleep(40 * time.Millisecond)
+	w.LocalWrite(clip.Content{Kind: clip.KindText, Text: "remote"})
+	time.Sleep(40 * time.Millisecond)
+
+	fb.mu.Lock()
+	fb.content = clip.Content{Kind: clip.KindText, Text: "external"}
+	fb.mu.Unlock()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for external change")
+	}
+	cancel()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 1 || got[0] != "external" {
+		t.Errorf("got %v, want [external]", got)
 	}
 }

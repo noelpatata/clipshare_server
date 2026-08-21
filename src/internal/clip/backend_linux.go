@@ -196,15 +196,34 @@ func runBin(name string, args []string) ([]byte, error) {
 }
 
 // runStdin runs a command with the given text on stdin.
+//
+// The writer tools (wl-copy, xclip) fork a child that keeps owning the
+// selection after the parent exits, and that child inherits our stderr pipe.
+// A bytes.Buffer stderr would therefore never see EOF and cmd.Run() would
+// block for as long as the selection lives, wedging every clipboard write.
+// A temp file closes when the parent exits, so Run() returns promptly while
+// still capturing the parent's diagnostics for error reporting.
 func runStdin(name string, args []string, text string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Stdin = strings.NewReader(text)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return withStderr(err, stderr.String())
+
+	var stderrFile *os.File
+	if f, err := os.CreateTemp("", "clipshare-stderr-*"); err == nil {
+		stderrFile = f
+		cmd.Stderr = f
+		defer func() {
+			f.Close()
+			os.Remove(f.Name())
+		}()
 	}
-	return nil
+
+	err := cmd.Run()
+	if err != nil && stderrFile != nil {
+		if b, rerr := os.ReadFile(stderrFile.Name()); rerr == nil {
+			return withStderr(err, string(b))
+		}
+	}
+	return err
 }
 
 // withStderr appends the command's captured stderr to err so the caller sees

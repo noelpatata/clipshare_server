@@ -127,6 +127,7 @@ func (s *Server) handleClipboard(from *Client, msg protocol.ClipboardMsg) {
 	// Loop protection: ignore content identical to what we last wrote locally
 	// (echo of our own broadcast).
 	key := protocol.ContentKey(content)
+	from.noteIncoming(key)
 	s.mu.Lock()
 	isEcho := key == s.lastBroadcast && time.Since(s.lastBroadcastT) < s.cfg.Timing.EchoWindow
 	if !isEcho {

@@ -3,6 +3,7 @@ package clip
 import (
 	"context"
 	"hash/fnv"
+	"sync"
 	"time"
 
 	"clipshare/src/internal/log"
@@ -11,7 +12,12 @@ import (
 // Watcher polls the clipboard for external changes and fires onChange with
 // the new content. It applies loop protection: content written by the local
 // client (via Track/LocalWrite) is not reported again.
+//
+// The mutex serializes poll reads against LocalWrite/Track so a tick that
+// races a local write can never observe the pre-write value and misreport it
+// as an external change (which would echo content back to its sender).
 type Watcher struct {
+	mu       sync.Mutex
 	clip     Interface
 	interval time.Duration
 	onChange func(Content)
@@ -39,7 +45,9 @@ func hashContent(c Content) uint64 {
 
 // Run polls the clipboard until ctx is cancelled.
 func (w *Watcher) Run(ctx context.Context) {
+	w.mu.Lock()
 	w.lastHash = w.snapshot()
+	w.mu.Unlock()
 	t := time.NewTicker(w.interval)
 	defer t.Stop()
 	for {
@@ -47,20 +55,20 @@ func (w *Watcher) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			w.mu.Lock()
 			c, err := w.clip.Read()
 			if err != nil {
+				w.mu.Unlock()
 				log.Errorf("clipboard read: %v", err)
 				continue
 			}
 			h := hashContent(c)
-			if h == w.lastHash {
-				continue
-			}
+			fire := h != w.lastHash && h != w.skipHash
 			w.lastHash = h
-			if h == w.skipHash {
-				continue
+			w.mu.Unlock()
+			if fire {
+				w.onChange(c)
 			}
-			w.onChange(c)
 		}
 	}
 }
@@ -68,6 +76,8 @@ func (w *Watcher) Run(ctx context.Context) {
 // LocalWrite writes content to the clipboard and marks it so the watcher does
 // not rebroadcast it as an external change.
 func (w *Watcher) LocalWrite(c Content) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if err := w.clip.Write(c); err != nil {
 		log.Errorf("clipboard write: %v", err)
 		return
@@ -78,6 +88,8 @@ func (w *Watcher) LocalWrite(c Content) {
 
 // Track records a remote value as the current local state without writing.
 func (w *Watcher) Track(c Content) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.skipHash = hashContent(c)
 	w.lastHash = hashContent(c)
 }

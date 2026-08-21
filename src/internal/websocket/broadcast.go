@@ -34,8 +34,27 @@ func (s *Server) Broadcast(content clip.Content, from, skipID string) {
 }
 
 // BroadcastLocal fans out a local clipboard change to all connected clients.
+// Clients that sent us this exact content within the echo window are skipped,
+// so a watcher misfire can never bounce a client's own clip back to it.
 func (s *Server) BroadcastLocal(content clip.Content, from string) {
-	s.Broadcast(content, from, "")
+	key := protocol.ContentKey(content)
+	window := s.cfg.Timing.EchoWindow
+	payload, _ := json.Marshal(protocol.ContentMsg(content, protocol.NowMillis(), from))
+	msg, _ := json.Marshal(protocol.Envelope{Type: protocol.MsgClipboard, Data: payload})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, c := range s.clients {
+		if c.recentlySent(key, window) {
+			log.Debugf("broadcast to %s skipped: same content received recently", id)
+			continue
+		}
+		if err := c.write(msg); err != nil {
+			log.Errorf("broadcast to %s: %v", id, err)
+		}
+	}
+	for pc := range s.peers {
+		pc.Send(content, from)
+	}
 }
 
 func (s *Server) sendError(c *Client, code, msg string) {

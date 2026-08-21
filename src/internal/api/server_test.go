@@ -25,13 +25,13 @@ type fakeStatusSource struct {
 	mode      string
 }
 
-func (f *fakeStatusSource) DeviceName() string        { return f.device }
-func (f *fakeStatusSource) Version() string           { return f.version }
-func (f *fakeStatusSource) Uptime() time.Duration     { return f.uptime }
+func (f *fakeStatusSource) DeviceName() string             { return f.device }
+func (f *fakeStatusSource) Version() string                { return f.version }
+func (f *fakeStatusSource) Uptime() time.Duration          { return f.uptime }
 func (f *fakeStatusSource) Clients() []protocol.ClientInfo { return f.clients }
-func (f *fakeStatusSource) TokenAuth() bool           { return f.tokenAuth }
-func (f *fakeStatusSource) TLS() bool                 { return f.tls }
-func (f *fakeStatusSource) Mode() string              { return f.mode }
+func (f *fakeStatusSource) TokenAuth() bool                { return f.tokenAuth }
+func (f *fakeStatusSource) TLS() bool                      { return f.tls }
+func (f *fakeStatusSource) Mode() string                   { return f.mode }
 
 type fakeBroadcaster struct {
 	calls []struct {
