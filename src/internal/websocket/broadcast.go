@@ -9,8 +9,11 @@ import (
 )
 
 // Broadcast sends clipboard content to every connected client except the
-// origin (skipID "" means broadcast to all).
-func (s *Server) Broadcast(content clip.Content, from, skipID string) {
+// origin. skipID excludes the sending connection and skipName excludes any
+// other connection from the same device (so a reconnecting client never
+// receives a relay of its own message). "" means no exclusion. Dead clients
+// are dropped on write failure so ghost connections cannot linger.
+func (s *Server) Broadcast(content clip.Content, from, skipID, skipName string) {
 	if content.Kind == clip.KindImage && int64(len(content.Image)) > s.cfg.MaxImageBytes {
 		log.Warnf("dropping image broadcast: %d bytes exceeds max_image_bytes=%d",
 			len(content.Image), s.cfg.MaxImageBytes)
@@ -24,8 +27,12 @@ func (s *Server) Broadcast(content clip.Content, from, skipID string) {
 		if skipID != "" && id == skipID {
 			continue
 		}
+		if skipName != "" && c.name == skipName {
+			continue
+		}
 		if err := c.write(msg); err != nil {
 			log.Errorf("broadcast to %s: %v", id, err)
+			delete(s.clients, id)
 		}
 	}
 	for pc := range s.peers {
@@ -35,7 +42,7 @@ func (s *Server) Broadcast(content clip.Content, from, skipID string) {
 
 // BroadcastLocal fans out a local clipboard change to all connected clients.
 func (s *Server) BroadcastLocal(content clip.Content, from string) {
-	s.Broadcast(content, from, "")
+	s.Broadcast(content, from, "", "")
 }
 
 func (s *Server) sendError(c *Client, code, msg string) {

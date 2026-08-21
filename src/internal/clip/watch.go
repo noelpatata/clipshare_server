@@ -3,6 +3,7 @@ package clip
 import (
 	"context"
 	"hash/fnv"
+	"sync"
 	"time"
 
 	"clipshare/src/internal/log"
@@ -10,11 +11,12 @@ import (
 
 // Watcher polls the clipboard for external changes and fires onChange with
 // the new content. It applies loop protection: content written by the local
-// client (via Track/LocalWrite) is not reported again.
+// client via LocalWrite is not reported again.
 type Watcher struct {
 	clip     Interface
 	interval time.Duration
 	onChange func(Content)
+	mu       sync.Mutex
 	lastHash uint64
 	skipHash uint64
 }
@@ -39,7 +41,9 @@ func hashContent(c Content) uint64 {
 
 // Run polls the clipboard until ctx is cancelled.
 func (w *Watcher) Run(ctx context.Context) {
+	w.mu.Lock()
 	w.lastHash = w.snapshot()
+	w.mu.Unlock()
 	t := time.NewTicker(w.interval)
 	defer t.Stop()
 	for {
@@ -53,33 +57,35 @@ func (w *Watcher) Run(ctx context.Context) {
 				continue
 			}
 			h := hashContent(c)
+			w.mu.Lock()
 			if h == w.lastHash {
+				w.mu.Unlock()
 				continue
 			}
 			w.lastHash = h
 			if h == w.skipHash {
+				w.mu.Unlock()
 				continue
 			}
+			w.mu.Unlock()
 			w.onChange(c)
 		}
 	}
 }
 
 // LocalWrite writes content to the clipboard and marks it so the watcher does
-// not rebroadcast it as an external change.
+// not rebroadcast it as an external change. The suppression hashes are set
+// before the OS clipboard is touched (and under a mutex shared with Run), so a
+// poll that observes the write cannot fire onChange for content we just wrote.
 func (w *Watcher) LocalWrite(c Content) {
+	h := hashContent(c)
+	w.mu.Lock()
+	w.skipHash = h
+	w.lastHash = h
+	w.mu.Unlock()
 	if err := w.clip.Write(c); err != nil {
 		log.Errorf("clipboard write: %v", err)
-		return
 	}
-	w.skipHash = hashContent(c)
-	w.lastHash = hashContent(c)
-}
-
-// Track records a remote value as the current local state without writing.
-func (w *Watcher) Track(c Content) {
-	w.skipHash = hashContent(c)
-	w.lastHash = hashContent(c)
 }
 
 func (w *Watcher) snapshot() uint64 {
