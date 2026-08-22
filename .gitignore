@@ -1,7 +1,7 @@
 # Binaries
-clipshare
-clipshare.exe
-clipshare-linux-amd64
+/clipshare
+/clipshare.exe
+/clipshare-linux-amd64
 *.test
 
 # Release artifacts
