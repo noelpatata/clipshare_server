@@ -1,0 +1,32 @@
+device_name = "daemon-notls"
+mdns = true
+broadcast = 1
+watch = 100
+peers = []
+max_image_bytes = 10485760
+max_message_bytes = 10485760
+
+[connection]
+mode = "discover"
+whitelist = []
+
+[server]
+port = 40403
+bind = "0.0.0.0"
+
+[api]
+port = 40405
+bind = "0.0.0.0"
+
+[discovery]
+mdns = true
+beacon = true
+beacon_port = 40404
+beacon_addr = "255.255.255.255"
+
+[clipboard]
+backend = "auto"
+
+[log]
+level = "debug"
+file = ""

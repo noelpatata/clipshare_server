@@ -1,0 +1,40 @@
+device_name = "peer-b"
+mdns = false
+broadcast = 1
+watch = 100
+token = ""
+peers = []
+max_image_bytes = 10485760
+max_message_bytes = 10485760
+
+[connection]
+mode = "discover"
+whitelist = []
+
+[server]
+port = 40403
+bind = "0.0.0.0"
+
+[api]
+port = 40405
+bind = "0.0.0.0"
+
+[discovery]
+mdns = false
+beacon = false
+beacon_port = 40404
+beacon_addr = "255.255.255.255"
+
+[clipboard]
+backend = "auto"
+
+[log]
+level = "debug"
+file = ""
+
+[tls]
+enabled = true
+ca = "/app/certs/ca.pem"
+cert = "/app/certs/server.pem"
+key = "/app/certs/server.key"
+verify_hostname = false

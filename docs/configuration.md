@@ -35,8 +35,9 @@ may be unset).
 | `connection.whitelist` | table array | `[]` | Allowed devices in whitelist mode: `{ name = "...", ip = "..." }`. |
 | `tls.enabled` | bool | `false` | Enable mutual TLS on the WebSocket server (and `wss://` outbound peer dials). |
 | `tls.ca` | string | `<config-dir>/certs/ca.pem` | The private CA (trust root) both sides must share. |
-| `tls.cert` | string | `<config-dir>/certs/server.pem` | This device's certificate (CN = your device name, SAN IPs = its LAN IPs). |
+| `tls.cert` | string | `<config-dir>/certs/server.pem` | This device's certificate (CN = your device name). |
 | `tls.key` | string | `<config-dir>/certs/server.key` | This device's private key (permissions `0600`). |
+| `tls.verify_hostname` | bool | `true` | Require the server certificate's SANs to match the dialed address on outbound peer dials. Set `false` to trust the CA chain alone so certificates keep working after a wifi/DHCP change. |
 
 ### Discovery
 
@@ -63,9 +64,9 @@ previous hardcoded values; change only if you know you need to.
 | `timing.peer_backoff_initial` | duration | `"1s"` | Initial reconnect delay for outbound peers. |
 | `timing.peer_backoff_max` | duration | `"30s"` | Max reconnect delay for outbound peers. |
 | `timing.echo_window` | duration | `"30s"` | How long loop-protection remembers the last local broadcast. |
-| `timing.one_shot_timeout` | duration | `"120s"` | How long `clipshare share` waits for a client. |
+| `timing.one_shot_timeout` | duration | `"120s"` | How long `clipshare send` (one-shot) waits for a client. |
 | `timing.one_shot_grace` | duration | `"5s"` | How long a one-shot server stays up after delivering. |
-| `timing.watch_remote_timeout` | duration | `"120s"` | Default timeout for `clipshare watch --remote`. |
+| `timing.watch_remote_timeout` | duration | `"120s"` | Default timeout for `clipshare watch`. |
 
 ### Clipboard (Linux only)
 
@@ -81,6 +82,15 @@ When `backend = "auto"` the daemon tries, in order:
 1. `wl-copy` / `wl-paste` if `WAYLAND_DISPLAY` is set.
 2. `xclip`
 3. `xsel`
+
+### Log
+
+The `[log]` section controls where and how verbosely the daemon logs.
+
+| key | type | default | description |
+|-----|------|---------|-------------|
+| `log.level` | string | `"info"` | `"debug"`, `"info"`, `"warn"`, or `"error"`. Messages below the level are suppressed. `"debug"` is the most verbose (per-peer retries, per-write details). |
+| `log.file` | string | `""` | Log file path. Empty logs to stderr (the default for systemd/service users). A non-empty path is opened append-only with `0600` permissions. |
 
 ### Linux clipboard setup
 
@@ -165,8 +175,12 @@ When `tls.enabled = true`:
   a client certificate signed by `tls.ca` — clients without one are rejected
   at the TLS handshake.
 - The Android app (and desktop peers) present their own CA-signed client
-  certificate and verify the server against the same CA plus the server's SAN
-  IPs.
+  certificate and verify the server against the same CA.
+- Hostname/IP-address verification is controlled by `tls.verify_hostname`
+  (default `true`, strict). When it is `false`, the server's SAN IPs are
+  ignored and trust rests solely on the CA, so a device stays connectable
+  across wifi/DHCP changes without re-issuing certificates. Chain validation
+  still runs — only a certificate signed by the shared CA is accepted.
 - The UDP beacon advertises `tls=true` so clients automatically use `wss://`.
 
 Generate the CA and certificates with the `clipshare cert` subcommands:
@@ -176,17 +190,26 @@ clipshare cert init                                   # create the private CA
 clipshare cert issue --name desktop --type server     # server cert (auto SAN IPs)
 clipshare cert issue --name phone1  --type client     # phone client cert
 clipshare cert export --name phone1 --type client     # -> phone1-client.p12
+clipshare cert qr --name phone1 --type client         # print a QR the app can scan
 ```
 
-Import the `.p12` on the phone (Settings → certificate), and set the same
-values for `tls.ca`/`tls.cert`/`tls.key` here. The `.p12` password is
-`clipshare` (exported in the legacy 3DES PKCS#12 format for Android
-compatibility — treat the file like a secret).
+Import the `.p12` (or scan the QR) on the phone. Set the same values for
+`tls.ca`/`tls.cert`/`tls.key` here. The `.p12` password is `clipshare`
+(exported in the legacy 3DES PKCS#12 format for Android compatibility — treat
+the file like a secret).
 
-**DHCP note:** the server certificate's SANs carry the desktop's LAN IPs. If
-the IP changes (DHCP), reissue the server certificate (`clipshare cert issue
---name desktop --type server`) and re-import if the phone pinned it. Prefer a
-DHCP reservation for the desktop.
+The QR payload uses a compact gzip-compressed envelope of the key, leaf
+certificate and CA (all in DER) instead of the raw `.p12`, keeping the QR small
+enough to scan reliably. The app rebuilds the PKCS#12 bundle locally and
+auto-trusts the CA, so a single scan installs the private key for mutual TLS
+and trusts the server.
+
+**Network independence:** set `tls.verify_hostname = false` so clients do not
+check the certificate against the dialed IP. You can then move between
+wifi/DHCP networks without re-issuing the server certificate or re-importing
+anything on the phone. The cert only needs to stay within its validity window
+and be signed by the same CA. (Keep the default `true` if you want strict
+hostname matching.)
 
 ## Environment variables
 
@@ -224,6 +247,13 @@ beacon = true
 beacon_port = 40404
 beacon_addr = "255.255.255.255"
 
+[clipboard]
+backend = "auto"
+
+[log]
+level = "info"
+file = ""
+
 [timing]
 hello_timeout = "5s"
 write_timeout = "3s"
@@ -240,6 +270,7 @@ enabled = false
 ca = "/home/you/.config/clipshare/certs/ca.pem"
 cert = "/home/you/.config/clipshare/certs/server.pem"
 key = "/home/you/.config/clipshare/certs/server.key"
+verify_hostname = true
 ```
 
 ## Behavior notes

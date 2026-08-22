@@ -5,8 +5,15 @@ Windows), watches the clipboard, and pushes changes to connected clients over
 WebSocket — so a copy on your desktop appears on your phone (and vice versa).
 
 The Android companion app lives in the separate repo
-[`clipshare_client`](../clipshare_client) and auto-discovers the daemon, so no
+[`clipshare_android`](../clipshare_android) and auto-discovers the daemon, so no
 IP configuration is needed.
+
+That Android app can also run in **server mode**, letting two Android devices
+share a clipboard directly without a desktop daemon. In server mode the phone
+advertises itself via mDNS/UDP and accepts inbound WebSocket connections from
+other ClipShare clients. TLS is supported using a CA + server certificate
+generated on the phone itself; the CA certificate is exported and imported on
+the peer device.
 
 ## Features
 
@@ -15,7 +22,7 @@ IP configuration is needed.
 - **Loop protection** — never rebroadcasts content it wrote itself
 - **Zero-config discovery** — mDNS (`_clipshare._tcp`) + UDP beacons on `40404`
   so the phone connects automatically
-- **One-shot `share`** — push text (or your current clipboard) without keeping a
+- **One-shot `send`** — push text (or your current clipboard) without keeping a
   daemon running; it starts transiently, delivers, and exits
 - Cross-platform: **Linux** (Wayland + X11) and **Windows**
 - Optional shared **token** authentication
@@ -37,8 +44,8 @@ make build                # -> ./clipshare
 make build-windows        # -> ./clipshare.exe
 
 # or with Go directly
-go build -o clipshare ./cmd/clipshare          # current platform
-GOOS=windows GOARCH=amd64 go build -o clipshare.exe ./cmd/clipshare
+go build -o clipshare ./src/cmd/clipshare           # current platform
+GOOS=windows GOARCH=amd64 go build -o clipshare.exe ./src/cmd/clipshare
 ```
 
 ## Install to your PATH
@@ -60,14 +67,14 @@ Alternatively use `go install` (puts the binary in `$(go env GOPATH)/bin`,
 usually `~/go/bin`):
 
 ```sh
-go install ./cmd/clipshare
+go install ./src/cmd/clipshare
 ```
 
 ### Windows
 
 ```powershell
 # build (in the repo)
-go build -o clipshare.exe ./cmd/clipshare
+go build -o clipshare.exe ./src/cmd/clipshare
 
 # move it somewhere permanent, e.g.
 mkdir $HOME\bin
@@ -87,17 +94,16 @@ clipshare --help
 
 ```
 clipshare daemon [--no-watch]   run server + clipboard watcher (foreground)
-  clipshare share [<text>]        push text (or your clipboard) to peers;
-                                starts a transient daemon if none is running
-clipshare send <text>           push text via a running daemon to connected peers
-clipshare copy <text>           set the local clipboard only
-clipshare watch                 print clipboard changes until interrupted
-clipshare watch --remote        temporarily listen (max 120s) and write the
+clipshare send [<text>]         push text (or your clipboard) to peers.
+                                Sends via a running daemon, or starts a
+                                transient one-shot server if none is running.
+                                Use --oneshot to force the transient server.
+clipshare watch [--timeout d]   temporarily listen (max 120s) and write the
                                 first incoming push to the local clipboard,
                                 then exit
 clipshare status                show daemon status + connected clients
 clipshare config --init         write default config to ~/.config/clipshare/config.toml
-clipshare cert                  manage mTLS certificates (init/issue/export/list)
+clipshare cert                  manage mTLS certificates (init/issue/export/qr/list)
 ```
 
 ### Sending text
@@ -105,13 +111,15 @@ clipshare cert                  manage mTLS certificates (init/issue/export/list
 **One-shot (no daemon left running)** — the recommended way:
 
 ```sh
-clipshare share "hello from the laptop"   # explicit text
-clipshare share                           # sends your current clipboard
+clipshare send "hello from the laptop"   # explicit text
+clipshare send                           # sends your current clipboard
+clipshare send --oneshot "hello"         # force the transient server
 ```
 
-`share` checks for a running daemon; if none exists it starts a transient
-one, waits up to 120s for a client (the phone's sync service auto-connects via
-discovery), delivers the text, and exits ~5s later. Nothing stays running.
+`send` checks for a running daemon; if none exists it starts a transient
+one-shot server, waits up to 120s for a client (the phone's sync service
+auto-connects via discovery), delivers the text, and exits ~5s later. Nothing
+stays running.
 
 **Persistent daemon** — for always-on sync (clipboard watching + receiving):
 
@@ -121,15 +129,15 @@ clipshare send "hello"      # push from a second terminal / keybinding
 clipshare status            # verify the daemon is up and who is connected
 ```
 
-> `share` and `send` do the same push; `share` additionally falls back to a
-> transient daemon and reads your clipboard when no text is given.
+`send` pushes via the running daemon when present and falls back to the
+transient one-shot server otherwise; `--oneshot` forces the transient server.
 
 ### Receiving on the laptop
 
 - **Always-on:** run `clipshare daemon` — it watches for remote content and
   writes it straight to the local clipboard (no extra command needed).
-- **On demand:** run `clipshare watch --remote` to temporarily listen (max
-  120s, `--timeout` to change). The first push from your phone is written to
+- **On demand:** run `clipshare watch` to temporarily listen (max 120s,
+  `--timeout` to change). The first push from your phone is written to
   the local clipboard and printed, then it exits.
 - Copying on the phone pushes while the ClipShare app is open on the phone
   (Android 10+ blocks background clipboard reads; enable background capture in
@@ -152,7 +160,9 @@ clipshare status            # verify the daemon is up and who is connected
 | `connection.whitelist` | `[]`  | allowed devices by name/ip in whitelist mode |
 | `[server] port` | `40403` | WebSocket port                              |
 | `[api] port`    | `40405` | localhost control API                       |
-| `[tls] enabled/ca/cert/key` | `false` | mutual TLS (see docs) |
+| `[tls] enabled/ca/cert/key/verify_hostname` | `false` | mutual TLS (see docs) |
+| `[log] level`   | `"info"` | log verbosity: `debug` / `info` / `warn` / `error` |
+| `[log] file`    | `""`     | log file path (empty = stderr)              |
 
 Ports: WS/TCP `40403`, UDP beacon `40404`, localhost API `40405` (127.0.0.1 only).
 
@@ -188,15 +198,46 @@ systemctl --user status clipshare
 
 - **Mutual TLS (mTLS):** optional but recommended. `clipshare cert init`
   creates a private CA; `clipshare cert issue` signs a server cert and client
-  certs; `clipshare cert export` produces a `.p12` to import on the phone. When
+  certs; `clipshare cert export` produces a `.p12` to import on the phone, or
+  `clipshare cert qr` prints a QR code the ClipShare app can scan to import it
+  (the QR bundles the key, certificate and CA, so a single scan enables mTLS
+  and trusts the server). When
   `tls.enabled = true` the server requires a CA-signed client certificate and
-  clients verify the server against the same CA + its SAN IPs (see
-  [docs/configuration.md](docs/configuration.md)).
+  clients verify the server against the same CA. Hostname/IP matching is
+  controlled by `tls.verify_hostname` (default `true`, strict); set it to
+  `false` so certificates stay valid across wifi/DHCP changes
+  (see [docs/configuration.md](docs/configuration.md)).
 - **Token:** a shared secret passed as `?token=` (encrypted under `wss`).
   Without TLS it travels in plaintext on the URL.
 - **Whitelist mode:** set `connection.mode = "whitelist"` to stop advertising
   and only accept (desktop) / connect to (phone) whitelisted devices.
 - The control API listens on `127.0.0.1` only.
+
+## Android server mode
+
+The [`clipshare_android`](../clipshare_android) app can switch from **Client**
+to **Server** mode in Settings. When server mode is active:
+
+- The phone listens for WebSocket connections on port `40403`.
+- It advertises itself via mDNS `_clipshare._tcp` and UDP beacons on `40404`.
+- Other Android (or desktop) clients can discover and connect to it.
+- Clipboard changes are relayed between all connected clients.
+
+### TLS between Android devices
+
+1. On the server phone, enable **TLS** in Server settings. The app generates a
+   local CA + server certificate (or tap **Regenerate cert** to reissue).
+2. On the server phone, tap **Show client cert QR** — it encodes a fresh
+   client certificate and the CA in a single scan — or **Share .p12 bundle** to
+   export the certificate bundle as a file.
+3. On the client phone, scan the QR (or import the `.p12`) under **Client
+   settings**. One import installs the client certificate and trusts the
+   server's CA.
+4. The client can now connect to the Android server over `wss://`.
+
+Mutual TLS is always required when server TLS is enabled: the client must
+present a certificate signed by the server's CA, and the server verifies the
+client against that same CA.
 
 ## Protocol
 
@@ -212,15 +253,16 @@ JSON over WebSocket (port `40403`):
 ## Project layout
 
 ```
-cmd/clipshare/        entry point (thin main)
-internal/cli/         command dispatch + App lifecycle (daemon, share, send, ...)
-internal/clip/        clipboard backends (Linux/Wayland, Windows) + watcher
-internal/config/      TOML config loading/saving
-internal/certs/       private CA + certificate issuance (clipshare cert)
-internal/consts/      non-configurable application constants
-internal/discover/    mDNS advertising + UDP beacon broadcasting
-internal/protocol/    JSON-over-WebSocket wire types + codec
-internal/websocket/   WebSocket server + outbound peers
-internal/api/         localhost HTTP control API + client
-internal/version/     release version
+src/cmd/clipshare/        entry point (thin main)
+src/internal/cli/         command dispatch + App lifecycle (daemon, send, ...)
+src/internal/clip/        clipboard backends (Linux/Wayland, Windows) + watcher
+src/internal/config/      TOML config loading/saving
+src/internal/certs/       private CA + certificate issuance (clipshare cert)
+src/internal/consts/      non-configurable application constants
+src/internal/discover/    mDNS advertising + UDP beacon broadcasting
+src/internal/log/         leveled logging (level + file from config)
+src/internal/protocol/    JSON-over-WebSocket wire types + codec
+src/internal/websocket/   WebSocket server + outbound peers
+src/internal/api/         localhost HTTP control API + client
+src/internal/version/     release version
 ```

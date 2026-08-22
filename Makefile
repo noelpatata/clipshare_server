@@ -3,7 +3,7 @@ BIN_WIN  := clipshare.exe
 BIN_LNX  := clipshare-linux-amd64
 INSTALL_DIR ?= $(HOME)/.local/bin
 
-VERSION := $(shell grep 'Version = ' internal/version/version.go | sed -e 's/.*"\([^"]*\)".*/\1/')
+VERSION := $(shell grep 'Version = ' src/internal/version/version.go | sed -e 's/.*"\([^"]*\)".*/\1/')
 DIST    := dist
 
 GO_LDFLAGS := -s -w
@@ -13,13 +13,13 @@ GO_LDFLAGS := -s -w
 all: build
 
 build: ## Build for the current platform
-	go build -o $(BIN) ./cmd/clipshare
+	go build -o $(BIN) ./src/cmd/clipshare
 
 build-linux: ## Cross-compile a static Linux amd64 binary
-	GOOS=linux GOARCH=amd64 go build -ldflags "$(GO_LDFLAGS)" -o $(BIN_LNX) ./cmd/clipshare
+	GOOS=linux GOARCH=amd64 go build -ldflags "$(GO_LDFLAGS)" -o $(BIN_LNX) ./src/cmd/clipshare
 
 build-windows: ## Cross-compile a Windows amd64 binary
-	GOOS=windows GOARCH=amd64 go build -ldflags "$(GO_LDFLAGS)" -o $(BIN_WIN) ./cmd/clipshare
+	GOOS=windows GOARCH=amd64 go build -ldflags "$(GO_LDFLAGS)" -o $(BIN_WIN) ./src/cmd/clipshare
 
 build-all: build-linux build-windows ## Build release binaries for all platforms into $(DIST)
 	@mkdir -p $(DIST)
@@ -43,8 +43,18 @@ uninstall: ## Remove the symlink from $(INSTALL_DIR)
 clean: ## Remove built binaries
 	rm -rf $(BIN) $(BIN_WIN) $(BIN_LNX) $(DIST)
 
-test: ## Run go vet
+test: ## Run unit tests and go vet
+	go test ./src/cmd/... ./src/internal/...
 	go vet ./...
+
+integration-test: ## Build image and run Docker integration tests
+	docker build -t clipshare:integration .
+	# -parallel 2: each test creates its own Docker bridge network; hosts with a
+	# small default address pool (e.g. this one) exhaust it under full parallelism.
+	go test ./src/tests/integration/... -count=1 -v -parallel 2
+
+integration-test-clean: ## Remove integration test Docker images
+	docker rmi clipshare:integration || true
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'

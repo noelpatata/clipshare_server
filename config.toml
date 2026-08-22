@@ -1,0 +1,40 @@
+# Default ClipShare server configuration for the container image.
+# Mount your own config at /app/config.toml (or set CLIPSHARE_CONFIG) to
+# override. Omitted keys fall back to the compiled-in defaults, e.g. device_name
+# defaults to the container hostname.
+
+mdns = true
+broadcast = 5
+watch = 300
+token = ""
+peers = []
+max_image_bytes = 10485760
+max_message_bytes = 10485760
+
+[connection]
+mode = "discover"
+whitelist = []
+
+[server]
+port = 40403
+bind = "0.0.0.0"
+
+# The control API is unauthenticated. It is bound to all interfaces here so
+# `clipshare send`/`status` work from the host against a published port. For a
+# lock-down, bind it back to 127.0.0.1 or require a token on the WebSocket port.
+[api]
+port = 40405
+bind = "0.0.0.0"
+
+[discovery]
+mdns = true
+beacon = true
+beacon_port = 40404
+beacon_addr = "255.255.255.255"
+
+[clipboard]
+backend = "auto"
+
+[log]
+level = "info"
+file = ""

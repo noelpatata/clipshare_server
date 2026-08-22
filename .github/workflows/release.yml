@@ -25,7 +25,12 @@ jobs:
       - name: Extract version
         id: version
         run: |
-          VERSION=$(grep 'Version = ' internal/version/version.go | sed -e 's/.*"\([^"]*\)".*/\1/')
+          set -euo pipefail
+          VERSION=$(grep 'Version = ' src/internal/version/version.go | sed -e 's/.*"\([^"]*\)".*/\1/')
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: could not parse version from src/internal/version/version.go"
+            exit 1
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
