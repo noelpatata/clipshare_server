@@ -22,7 +22,7 @@ may be unset).
 | `device_name` | string | hostname | The name this daemon announces. Shown in `hello`, `status`, and mDNS/beacon discovery. The Android app's "device name" is the analogous setting. |
 | `mdns` | bool | `true` | **Deprecated.** Use `[discovery] mdns` instead. Kept for backward compatibility. |
 | `broadcast` | int (seconds) | `5` | Interval of the UDP discovery beacon. `<= 0` falls back to 5s. |
-| `watch` | int (milliseconds) | `300` | Clipboard poll interval. Values `< 50` are clamped back to `300`. |
+| `watch` | int (milliseconds) | `300` | Fallback clipboard poll interval, used only when platform change-events are unavailable. Values `< 50` are clamped back to `300`. |
 | `token` | string | `""` | Optional shared secret. When set, clients must pass `?token=` on the WebSocket URL (the Android app and desktop peers do this automatically). Empty = no token check. **Security note:** without TLS the token travels in plaintext (URL and never again in the beacon). Prefer mTLS (`[tls]`). |
 | `peers` | []string | `[]` | Desktop-to-desktop relay targets: `host[:port]`. Each is dialed out and retried with backoff. Used to relay clipboard data between two desktops. |
 | `max_image_bytes` | int | `10485760` | Images larger than this are dropped at broadcast time instead of being sent. 0 or negative falls back to 10 MiB. |

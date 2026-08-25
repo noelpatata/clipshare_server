@@ -152,7 +152,7 @@ transient one-shot server otherwise; `--oneshot` forces the transient server.
 | `device_name`| hostname   | name shown to clients                          |
 | `mdns`       | `true`     | advertise via mDNS `_clipshare._tcp`           |
 | `broadcast`  | `5`        | UDP beacon interval in seconds                 |
-| `watch`      | `300`      | clipboard poll interval in ms                  |
+| `watch`      | `300`      | fallback clipboard poll interval in ms (used only when change events are unavailable, e.g. headless) |
 | `token`      | `""`       | shared secret; if set, clients must send it    |
 | `peers`      | `[]`       | desktop-to-desktop peer hosts (`ip[:port]`)    |
 | `max_image_bytes` | `10485760` | drop images larger than this when broadcasting |

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 
 	"clipshare/src/internal/api"
 	"clipshare/src/internal/clip"
@@ -58,10 +59,23 @@ func (a *App) Run(ctx context.Context, opts RunOptions) error {
 	// Wire the remote-write callback after the watcher exists so we can use
 	// LocalWrite when watching is enabled (avoiding rebroadcast loops).
 	if !opts.NoWatch {
+		var watcherOpts []clip.WatcherOption
+		notifyCh, stopNotify, err := clip.StartClipboardNotifier(ctx)
+		defer stopNotify()
+		switch {
+		case err == nil:
+			watcherOpts = append(watcherOpts, clip.WithNotifier(notifyCh))
+			log.Infof("clipboard watching: event-driven")
+		case errors.Is(err, clip.ErrNotifierUnavailable):
+			log.Debugf("clipboard watching: polling every %s (%v)", a.cfg.WatchInterval(), err)
+		default:
+			log.Warnf("clipboard change events unavailable (%v); falling back to %s polling",
+				err, a.cfg.WatchInterval())
+		}
 		a.watcher = clip.NewWatcher(a.clipboard, a.cfg.WatchInterval(), func(content clip.Content) {
 			log.Debugf("local clipboard changed")
 			a.server.BroadcastLocal(content, a.cfg.DeviceName)
-		})
+		}, watcherOpts...)
 		a.server.SetOnRemoteClip(a.writeRemote)
 		go a.watcher.Run(ctx)
 	} else {
