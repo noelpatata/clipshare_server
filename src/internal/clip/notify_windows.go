@@ -38,12 +38,12 @@ var (
 	procDefWindowProcW                = user32.NewProc("DefWindowProcW")
 	procAddClipboardFormatListener    = user32.NewProc("AddClipboardFormatListener")
 	procRemoveClipboardFormatListener = user32.NewProc("RemoveClipboardFormatListener")
+	procPostThreadMessageW            = user32.NewProc("PostThreadMessageW")
 
 	kernel32 = syscall.NewLazyDLL("kernel32")
 
 	procGetCurrentThreadId = kernel32.NewProc("GetCurrentThreadId")
 	procGetModuleHandleW   = kernel32.NewProc("GetModuleHandleW")
-	procPostThreadMessageW = kernel32.NewProc("PostThreadMessageW")
 )
 
 type point struct{ x, y int32 }

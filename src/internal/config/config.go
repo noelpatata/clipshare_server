@@ -149,7 +149,18 @@ func Path() string {
 	if cfg := os.Getenv("CLIPSHARE_CONFIG"); cfg != "" {
 		return cfg
 	}
-	return filepath.Join(os.Getenv("HOME"), ".config", "clipshare", "config.toml")
+
+	home := os.Getenv("HOME")
+	if home == "" {
+		home = os.Getenv("USERPROFILE")
+	}
+	if home == "" {
+		home = os.Getenv("HOMEDRIVE") + os.Getenv("HOMEPATH")
+	}
+	if home == "" {
+		return filepath.Join(".config", "clipshare", "config.toml")
+	}
+	return filepath.Join(home, ".config", "clipshare", "config.toml")
 }
 
 func Load() (*Config, error) {

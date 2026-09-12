@@ -2,13 +2,14 @@ BIN      := clipshare
 BIN_WIN  := clipshare.exe
 BIN_LNX  := clipshare-linux-amd64
 INSTALL_DIR ?= $(HOME)/.local/bin
+VERSION_FILE := src/internal/version/version.go
 
-VERSION := $(shell grep 'Version = ' src/internal/version/version.go | sed -e 's/.*"\([^"]*\)".*/\1/')
+VERSION := $(shell sed -n 's/.*const Version = "\([^"]*\)".*/\1/p' $(VERSION_FILE))
 DIST    := dist
 
 GO_LDFLAGS := -s -w
 
-.PHONY: all build build-linux build-windows build-all release install uninstall clean test
+.PHONY: all build build-linux build-windows build-all release version install uninstall clean test installer
 
 all: build
 
@@ -28,7 +29,16 @@ build-all: build-linux build-windows ## Build release binaries for all platforms
 	cd $(DIST) && sha256sum clipshare-$(VERSION)-linux-amd64 clipshare-$(VERSION)-windows-amd64.exe > checksums.txt
 	@echo "Release artifacts in $(DIST)/"
 
-release: build-all ## Alias for build-all (used by CI)
+installer: build-windows ## Build a Windows NSIS installer from the repo template
+	@mkdir -p $(DIST)
+	cp $(BIN_WIN) $(DIST)/clipshare-$(VERSION)-windows-amd64.exe
+	@sed "s/\${VERSION}/$(VERSION)/g" windows/clipshare-installer.nsi > $(DIST)/clipshare-installer.nsi
+	@makensis -INPUTCHARSET UTF-8 $(DIST)/clipshare-installer.nsi
+
+release: build-all installer ## Build all release binaries and the Windows installer
+
+version: ## Print the application version used by release artifacts
+	@printf '%s\n' "$(VERSION)"
 
 install: build ## Symlink $(BIN) into $(INSTALL_DIR) and print PATH hint
 	@mkdir -p $(INSTALL_DIR)

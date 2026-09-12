@@ -19,7 +19,7 @@ jobs:
       - name: Extract version from version.go
         id: file_version
         run: |
-          VERSION=$(grep 'const Version' internal/version/version.go | sed -E 's/.*"([^"]+)".*/\1/')
+          VERSION=$(make version)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version in version.go: $VERSION"
 

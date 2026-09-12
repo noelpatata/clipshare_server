@@ -62,6 +62,17 @@ func TestPathFallsBackToHome(t *testing.T) {
 	}
 }
 
+func TestPathFallsBackToWindowsUserProfile(t *testing.T) {
+	t.Setenv("CLIPSHARE_CONFIG", "")
+	t.Setenv("HOME", "")
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	want := filepath.Join(home, ".config", "clipshare", "config.toml")
+	if got := config.Path(); got != want {
+		t.Errorf("Path() = %q, want %q", got, want)
+	}
+}
+
 func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLIPSHARE_CONFIG", filepath.Join(dir, "missing.toml"))

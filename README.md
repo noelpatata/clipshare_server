@@ -63,8 +63,8 @@ export PATH=$HOME/.local/bin:$PATH
 source ~/.zshrc
 ```
 
-Alternatively use `go install` (puts the binary in `$(go env GOPATH)/bin`,
-usually `~/go/bin`):
+Alternatively use `go install` (puts the binary in `GOBIN`, or in the `bin`
+directory of `GOPATH`, usually `~/go/bin`):
 
 ```sh
 go install ./src/cmd/clipshare
@@ -72,23 +72,40 @@ go install ./src/cmd/clipshare
 
 ### Windows
 
+For normal users, download the Windows installer from the project release page.
+It installs ClipShare for the current user, creates the config in
+`%APPDATA%\clipshare`, and starts a Task Scheduler logon task in the same
+interactive desktop session as the clipboard. This is the recommended setup;
+ClipShare should not run as a Windows service when clipboard capture is needed.
+
+See [Windows installation](docs/windows.md) for manual installation, firewall
+rules, task management, upgrades, and troubleshooting.
+
+For developers, install the current Windows build with Go. `go install` writes
+to `GOBIN`, or otherwise to the `bin` directory of `GOPATH`.
+
 ```powershell
-# build (in the repo)
-go build -o clipshare.exe ./src/cmd/clipshare
+# from the repository root
+# build a native Windows binary
+GOOS=windows GOARCH=amd64 go build -o clipshare.exe .\src\cmd\clipshare
 
-# move it somewhere permanent, e.g.
-mkdir $HOME\bin
-Move-Item .\clipshare.exe $HOME\bin\
+# install it from source into GOBIN or GOPATH\bin
+go install .\src\cmd\clipshare
 
-# add that folder to PATH (persistent)
-setx PATH "$env:PATH;$HOME\bin"
+# show the directories Go uses for installed binaries
+go env GOBIN
+go env GOPATH
 
-# restart your terminal, then verify
+# verify the command is on PATH
 clipshare --help
 ```
 
-> `go install` also works on Windows and drops the binary into
-> `%USERPROFILE%\go\bin` — just add that folder to PATH instead.
+If `clipshare` is not found, add the Go binary directory to `PATH`. When
+`GOBIN` is empty, that directory is `Join-Path (go env GOPATH) "bin"`.
+
+> On Windows, the clipboard watcher must run in the same user desktop
+> session that owns the interactive clipboard. That means the recommended
+> background shape is a login task, not a Windows service session.
 
 ## Usage
 
@@ -193,6 +210,15 @@ systemctl --user daemon-reload
 systemctl --user enable --now clipshare
 systemctl --user status clipshare
 ```
+
+## Run ClipShare automatically on Windows
+
+The Windows clipboard notification path depends on the interactive user
+session. Use the [Windows installation guide](docs/windows.md), which covers
+the installer and the equivalent manual `schtasks` setup. A scheduled logon
+task is required for clipboard capture; a Windows service session is not a
+reliable fit. If you only need a network daemon without local clipboard
+watching, `daemon --no-watch` can be used instead.
 
 ## Security
 
