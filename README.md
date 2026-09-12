@@ -120,7 +120,7 @@ clipshare watch [--timeout d]   temporarily listen (max 120s) and write the
                                 first incoming push to the local clipboard,
                                 then exit
 clipshare status                show daemon status + connected clients
-clipshare config --init         write default config to ~/.config/clipshare/config.toml
+ clipshare config --init         write default config to the platform config path
 clipshare cert                  manage mTLS certificates (init/issue/export/qr/list)
 ```
 
@@ -163,7 +163,10 @@ transient one-shot server otherwise; `--oneshot` forces the transient server.
 
 ## Config
 
-`~/.config/clipshare/config.toml` — generated with `clipshare config --init`:
+The platform config path, generated with `clipshare config --init`:
+
+- Linux: `~/.config/clipshare/config.toml`
+- Windows: `%APPDATA%\clipshare\config.toml`
 
 | key          | default    | meaning                                        |
 |--------------|------------|------------------------------------------------|

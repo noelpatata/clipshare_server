@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -148,6 +149,11 @@ func Default() *Config {
 func Path() string {
 	if cfg := os.Getenv("CLIPSHARE_CONFIG"); cfg != "" {
 		return cfg
+	}
+	if runtime.GOOS == "windows" {
+		if appData := os.Getenv("APPDATA"); appData != "" {
+			return filepath.Join(appData, "clipshare", "config.toml")
+		}
 	}
 
 	home := os.Getenv("HOME")

@@ -3,12 +3,15 @@
 This document is the reference for every configuration option in the ClipShare
 server. There is only one config file; it lives at:
 
-```
+On Linux and other Unix systems:
+
+```text
 $HOME/.config/clipshare/config.toml
 ```
 
-or wherever `CLIPSHARE_CONFIG` points (recommended on Windows, where `HOME`
-may be unset).
+On Windows, the default is `%APPDATA%\clipshare\config.toml`. The
+`CLIPSHARE_CONFIG` environment variable can still override the default on any
+platform.
 
 - Generate the default file with `clipshare config --init`.
 - Re-save the current effective config with `clipshare config`.

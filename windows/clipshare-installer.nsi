@@ -42,7 +42,6 @@ Section "Install"
   ; installer can use any per-user directory safely.
   SetOutPath "$INSTDIR"
   File "..\windows\run-clipshare.vbs"
-  File "..\windows\register-clipshare-task.ps1"
 
   ; LAN access requires administrator rights. Limit these rules to Private
   ; networks; the daemon should not be exposed on public networks.
@@ -51,16 +50,17 @@ Section "Install"
   ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name="ClipShare UDP Beacon 40404"'
   ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall add rule name="ClipShare UDP Beacon 40404" dir=in action=allow protocol=UDP localport=40404 profile=private'
 
-  ; Register the task explicitly for the current interactive user. Clipboard
-  ; notifications are tied to that desktop and do not work from a service
-  ; session. The helper avoids schtasks inheriting the elevated installer
-  ; principal.
-  ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\register-clipshare-task.ps1"' $0
+  ; Omitting /RU makes schtasks use the account running this installer without
+  ; requiring a password. ONLOGON runs in that user's desktop session, and
+  ; /RL LIMITED prevents the elevated installer token becoming the daemon's
+  ; task privilege.
+  ExecWait '"$SYSDIR\schtasks.exe" /Create /TN "ClipShare" /TR "$SYSDIR\wscript.exe $\"$INSTDIR\run-clipshare.vbs$\"" /SC ONLOGON /RL LIMITED /F' $0
   StrCmp $0 0 task_created
   Goto task_failed
 
   task_created:
-  ; The helper starts it now so the user does not need to log out and back in.
+  ; Start it now so the user does not need to log out and back in.
+  ExecWait '"$SYSDIR\schtasks.exe" /Run /TN "ClipShare"'
   Goto done
 
   task_failed:
@@ -75,7 +75,6 @@ Section "Uninstall"
   ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name="ClipShare UDP Beacon 40404"'
   Delete "$INSTDIR\clipshare.exe"
   Delete "$INSTDIR\run-clipshare.vbs"
-  Delete "$INSTDIR\register-clipshare-task.ps1"
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR"
   ; Configuration and certificates are user data and are intentionally kept.

@@ -52,7 +52,6 @@ repository's `windows` directory in the same directory, for example
 `%LOCALAPPDATA%\ClipShare`. Create the config once:
 
 ```powershell
-$env:CLIPSHARE_CONFIG = "$env:APPDATA\clipshare\config.toml"
 & "$env:LOCALAPPDATA\ClipShare\clipshare.exe" config --init
 ```
 
@@ -60,13 +59,14 @@ Register the current user's interactive logon task:
 
 ```powershell
 $launcher = "$env:LOCALAPPDATA\ClipShare\run-clipshare.vbs"
-schtasks.exe /Create /TN ClipShare /TR "`"$env:WINDIR\System32\wscript.exe`" `"$launcher`"" /SC ONLOGON /IT /RL LIMITED /F
+schtasks.exe /Create /TN ClipShare /TR "`"$env:WINDIR\System32\wscript.exe`" `"$launcher`"" /SC ONLOGON /RL LIMITED /F
 schtasks.exe /Run /TN ClipShare
 ```
 
-The launcher sets `CLIPSHARE_CONFIG` and starts `clipshare.exe daemon` hidden.
-It resolves the executable relative to the VBS file, so the install directory
-can contain spaces and does not need to be hard-coded.
+The launcher starts `clipshare.exe daemon` hidden. The CLI automatically uses
+`%APPDATA%\clipshare\config.toml` on Windows. It resolves the executable
+relative to the VBS file, so the install directory can contain spaces and does
+not need to be hard-coded.
 
 ## LAN firewall
 
@@ -103,7 +103,6 @@ schtasks.exe /Delete /TN ClipShare /F
 After deleting the task, start the daemon manually with:
 
 ```powershell
-$env:CLIPSHARE_CONFIG = "$env:APPDATA\clipshare\config.toml"
 & "$env:LOCALAPPDATA\ClipShare\clipshare.exe" daemon
 ```
 
@@ -117,6 +116,6 @@ $env:CLIPSHARE_CONFIG = "$env:APPDATA\clipshare\config.toml"
   allow TCP `40403` and UDP `40404` on the Private firewall profile, and check
   that both devices are on the same LAN.
 - **The clipboard is not captured:** ensure the task uses `/SC ONLOGON` and
-  `/IT`, and run it from the same Windows account that owns the desktop.
+  `/RL LIMITED`, and run it from the same Windows account that owns the desktop.
 - **A previous administrator install exists:** uninstall that copy first, or
   remove its old `ClipShare` task before creating the current-user task.

@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -54,6 +55,7 @@ func TestPathUsesEnvVar(t *testing.T) {
 
 func TestPathFallsBackToHome(t *testing.T) {
 	t.Setenv("CLIPSHARE_CONFIG", "")
+	t.Setenv("APPDATA", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	want := filepath.Join(home, ".config", "clipshare", "config.toml")
@@ -65,9 +67,22 @@ func TestPathFallsBackToHome(t *testing.T) {
 func TestPathFallsBackToWindowsUserProfile(t *testing.T) {
 	t.Setenv("CLIPSHARE_CONFIG", "")
 	t.Setenv("HOME", "")
+	t.Setenv("APPDATA", "")
 	home := t.TempDir()
 	t.Setenv("USERPROFILE", home)
 	want := filepath.Join(home, ".config", "clipshare", "config.toml")
+	if got := config.Path(); got != want {
+		t.Errorf("Path() = %q, want %q", got, want)
+	}
+}
+
+func TestPathUsesAppDataOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-specific config location")
+	}
+	t.Setenv("CLIPSHARE_CONFIG", "")
+	t.Setenv("APPDATA", `C:\Users\test\AppData\Roaming`)
+	want := filepath.Join(`C:\Users\test\AppData\Roaming`, "clipshare", "config.toml")
 	if got := config.Path(); got != want {
 		t.Errorf("Path() = %q, want %q", got, want)
 	}
