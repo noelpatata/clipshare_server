@@ -32,7 +32,7 @@ build-all: build-linux build-windows ## Build release binaries for all platforms
 installer: build-windows ## Build a Windows NSIS installer from the repo template
 	@mkdir -p $(DIST)
 	cp $(BIN_WIN) $(DIST)/clipshare-$(VERSION)-windows-amd64.exe
-	@sed "s/\${VERSION}/$(VERSION)/g" windows/clipshare-installer.nsi > $(DIST)/clipshare-installer.nsi
+	@sed "s/__VERSION__/$(VERSION)/g" windows/clipshare-installer.nsi > $(DIST)/clipshare-installer.nsi
 	@makensis -INPUTCHARSET UTF-8 $(DIST)/clipshare-installer.nsi
 
 release: build-all installer ## Build all release binaries and the Windows installer

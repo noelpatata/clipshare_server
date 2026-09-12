@@ -1,6 +1,6 @@
 !define APP_NAME "ClipShare"
 !define COMPANY_NAME "ClipShare"
-!define APP_VERSION "${VERSION}"
+!define APP_VERSION "__VERSION__"
 
 Name "${APP_NAME}"
 OutFile "..\dist\clipshare-${APP_VERSION}-windows-installer.exe"
