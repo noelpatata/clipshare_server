@@ -73,7 +73,8 @@ go install ./src/cmd/clipshare
 ### Windows
 
 For normal users, download the Windows installer from the project release page.
-It installs ClipShare for the current user, creates the config in
+It installs ClipShare for the current user, asks for administrator permission
+to configure the Private-network firewall rules, creates the config in
 `%APPDATA%\clipshare`, and starts a Task Scheduler logon task in the same
 interactive desktop session as the clipboard. This is the recommended setup;
 ClipShare should not run as a Windows service when clipboard capture is needed.

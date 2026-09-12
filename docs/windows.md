@@ -19,11 +19,12 @@ publishes it together with the Linux and Windows binaries.
 ## Recommended: installer
 
 1. Download `clipshare-<version>-windows-installer.exe` from the release page.
-2. Run the installer. It installs to `%LOCALAPPDATA%\ClipShare` and does not
-   require administrator permission.
-3. The installer creates `%APPDATA%\clipshare\config.toml` if it does not
+2. Run the installer and approve the administrator prompt. Administrator
+   access is required to configure the Windows Firewall rules.
+3. It installs to `%LOCALAPPDATA%\ClipShare`.
+4. The installer creates `%APPDATA%\clipshare\config.toml` if it does not
    already exist.
-4. The installer creates and starts a `ClipShare` logon task for the current
+5. The installer creates and starts a `ClipShare` logon task for the current
    Windows user.
 
 The installer preserves the config and certificates during upgrades. It keeps
@@ -69,21 +70,25 @@ can contain spaces and does not need to be hard-coded.
 
 ## LAN firewall
 
-The per-user installer deliberately does not request administrator access. If
-other devices cannot discover or connect to this PC, open the two inbound
-ports from an elevated PowerShell window:
+The installer creates these inbound rules for the `Private` network profile:
+
+- `ClipShare WebSocket TCP 40403`
+- `ClipShare UDP Beacon 40404`
+
+If you installed manually, or the rules were removed, create them from an
+elevated PowerShell window:
 
 ```powershell
-New-NetFirewallRule -DisplayName "ClipShare WebSocket" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 40403 -Profile Private
-New-NetFirewallRule -DisplayName "ClipShare discovery beacon" -Direction Inbound -Action Allow -Protocol UDP -LocalPort 40404 -Profile Private
+New-NetFirewallRule -DisplayName "ClipShare WebSocket TCP 40403" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 40403 -Profile Private
+New-NetFirewallRule -DisplayName "ClipShare UDP Beacon 40404" -Direction Inbound -Action Allow -Protocol UDP -LocalPort 40404 -Profile Private
 ```
 
 Use the `Private` profile on a trusted home or office LAN. Do not expose these
 ports on public networks. Remove the rules later with:
 
 ```powershell
-Remove-NetFirewallRule -DisplayName "ClipShare WebSocket"
-Remove-NetFirewallRule -DisplayName "ClipShare discovery beacon"
+Remove-NetFirewallRule -DisplayName "ClipShare WebSocket TCP 40403"
+Remove-NetFirewallRule -DisplayName "ClipShare UDP Beacon 40404"
 ```
 
 ## Task control

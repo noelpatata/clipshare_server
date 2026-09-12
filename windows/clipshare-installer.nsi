@@ -5,7 +5,7 @@
 Name "${APP_NAME}"
 OutFile "..\dist\clipshare-${APP_VERSION}-windows-installer.exe"
 InstallDir "$LOCALAPPDATA\ClipShare"
-RequestExecutionLevel user
+RequestExecutionLevel admin
 ShowInstDetails show
 ShowUninstDetails show
 
@@ -42,17 +42,25 @@ Section "Install"
   ; installer can use any per-user directory safely.
   SetOutPath "$INSTDIR"
   File "..\windows\run-clipshare.vbs"
+  File "..\windows\register-clipshare-task.ps1"
 
-  ; Run as the current interactive user. /IT is intentional: clipboard
-  ; notifications are tied to the logged-in desktop and do not work reliably
-  ; from a Windows service session.
-  ExecWait '"$SYSDIR\schtasks.exe" /Create /TN "ClipShare" /TR "$SYSDIR\wscript.exe $\"$INSTDIR\run-clipshare.vbs$\"" /SC ONLOGON /IT /RL LIMITED /F' $0
+  ; LAN access requires administrator rights. Limit these rules to Private
+  ; networks; the daemon should not be exposed on public networks.
+  ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name="ClipShare WebSocket TCP 40403"'
+  ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall add rule name="ClipShare WebSocket TCP 40403" dir=in action=allow protocol=TCP localport=40403 profile=private'
+  ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name="ClipShare UDP Beacon 40404"'
+  ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall add rule name="ClipShare UDP Beacon 40404" dir=in action=allow protocol=UDP localport=40404 profile=private'
+
+  ; Register the task explicitly for the current interactive user. Clipboard
+  ; notifications are tied to that desktop and do not work from a service
+  ; session. The helper avoids schtasks inheriting the elevated installer
+  ; principal.
+  ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\register-clipshare-task.ps1"' $0
   StrCmp $0 0 task_created
   Goto task_failed
 
   task_created:
-  ; Start it now so the user does not need to log out and back in.
-  ExecWait '"$SYSDIR\schtasks.exe" /Run /TN "ClipShare"'
+  ; The helper starts it now so the user does not need to log out and back in.
   Goto done
 
   task_failed:
@@ -63,8 +71,11 @@ SectionEnd
 Section "Uninstall"
   ExecWait '"$SYSDIR\schtasks.exe" /End /TN "ClipShare"'
   ExecWait '"$SYSDIR\schtasks.exe" /Delete /TN "ClipShare" /F'
+  ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name="ClipShare WebSocket TCP 40403"'
+  ExecWait '"$SYSDIR\netsh.exe" advfirewall firewall delete rule name="ClipShare UDP Beacon 40404"'
   Delete "$INSTDIR\clipshare.exe"
   Delete "$INSTDIR\run-clipshare.vbs"
+  Delete "$INSTDIR\register-clipshare-task.ps1"
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR"
   ; Configuration and certificates are user data and are intentionally kept.
